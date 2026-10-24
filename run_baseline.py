@@ -114,7 +114,17 @@ def source_facts(source):
 
 
 def finished_files(text):
-    return [int(n) for n in re.findall(r"Completed\s+(\d+)\s+test files", text)]
+    counts = [int(n) for n in re.findall(r"Completed\s+(\d+)\s+test files", text)]
+    # indicatif's final message is hidden without a TTY; the runner separately
+    # reports terminal progress in CI. Both forms must agree when both appear.
+    counts.extend(
+        int(total)
+        for done, total in re.findall(
+            r"Progress:\s+(\d+)/(\d+)\s+files completed \(100%\)", text
+        )
+        if done == total
+    )
+    return sorted(set(counts))
 
 
 def result_mismatch(text, sql):
@@ -214,7 +224,8 @@ def main():
             (complete_dir / "test_files").mkdir(parents=True, exist_ok=True)
             (oracle_dir / "test_files").mkdir(parents=True, exist_ok=True)
             complete_file = complete_dir / "test_files" / f"{case}.slt"
-            complete_file.write_text(original.rstrip() + f"\n\nquery TT\nEXPLAIN {sql}\n----\nPENDING_PLAN\n", encoding="utf-8")
+            body, marker, cleanup = original.partition("# Restore the original configuration.")
+            complete_file.write_text(body.rstrip() + f"\n\nquery TT\nEXPLAIN {sql}\n----\nPENDING_PLAN\n\n" + marker + cleanup, encoding="utf-8")
             (oracle_dir / "test_files" / f"{case}.slt").write_text(original, encoding="utf-8")
 
             complete = run([binary, "--complete", "--test-threads", "1", f"{case}.slt"], complete_dir, artifacts / "logs" / f"{case}-complete.log")

@@ -10,3 +10,7 @@ SELECT g, -"max(t.v)" AS "max(t.v)" FROM (SELECT g, max(v) FROM t GROUP BY g) OR
 ----
 a -2
 d -3
+
+# Restore the original configuration.
+statement ok
+SET datafusion.optimizer.enable_topk_aggregation = true;
