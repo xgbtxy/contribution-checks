@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ BASE_ENV = {
     "CARGO_BUILD_JOBS": "4",
     "CARGO_PROFILE_DEV_DEBUG": "0",
     "CARGO_INCREMENTAL": "0",
+    "PYTHONDONTWRITEBYTECODE": "1",
     "RUST_BACKTRACE": "1",
 }
 PROTOC_VERSION = "libprotoc 3.21.12"
@@ -233,6 +235,54 @@ def record_versions(receipt, source):
     base.dump(artifact_path(receipt, "receipt.json"), receipt)
 
 
+def record_origin_main(receipt, source):
+    origin = run_command(
+        receipt, source, "git-origin-url", ["git", "remote", "get-url", "origin"], timeout=30
+    )
+    origin_url = origin["stdout"].strip()
+    normalized = origin_url.rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    if not (normalized.endswith("/apache/datafusion") or normalized.endswith(":apache/datafusion")):
+        raise RuntimeError(f"origin does not point to apache/datafusion: {origin_url}")
+
+    main = run_command(
+        receipt,
+        source,
+        "git-origin-main-sha",
+        ["git", "rev-parse", "--verify", "origin/main^{commit}"],
+        timeout=30,
+    )
+    merge_base = run_command(
+        receipt,
+        source,
+        "git-origin-main-merge-base",
+        ["git", "merge-base", "HEAD", "origin/main"],
+        timeout=30,
+    )
+    if main["exit_code"] != 0 or main["timed_out"] or merge_base["exit_code"] != 0 or merge_base["timed_out"]:
+        raise RuntimeError("origin/main and its merge base with the pinned source must be available")
+    receipt["origin_url"] = origin_url
+    receipt["origin_main_sha"] = main["stdout"].strip()
+    receipt["origin_main_merge_base_sha"] = merge_base["stdout"].strip()
+    base.dump(artifact_path(receipt, "receipt.json"), receipt)
+
+
+def check_candidate_file_sizes(receipt, source, paths):
+    # The repository script scans committed blobs, while these candidates are
+    # deliberately validated before the target commit. Check their bytes too.
+    script = source / "ci/scripts/check_large_files.sh"
+    match = re.search(r"^DEFAULT_MAX_FILE_SIZE_BYTES=(\d+)$", script.read_text(encoding="utf-8"), re.MULTILINE)
+    if not match:
+        raise RuntimeError("cannot read the repository's default file size limit")
+    limit = int(match.group(1))
+    sizes = {path: (source / path).stat().st_size for path in sorted(paths)}
+    receipt["candidate_file_size_check"] = {"limit_bytes": limit, "files": sizes, "scope": "Uncommitted candidate files; supplementary to the repository's committed-blob scan"}
+    if any(size > limit for size in sizes.values()):
+        raise RuntimeError("candidate file exceeds the repository's default file size limit")
+    base.dump(artifact_path(receipt, "receipt.json"), receipt)
+
+
 def run_group(receipt, source):
     extended = [
         "cargo",
@@ -340,6 +390,7 @@ def main():
             raise RuntimeError("baseline source validation failed: " + "; ".join(failures))
         base.dump(artifacts / "receipt.json", receipt)
 
+        record_origin_main(receipt, source)
         record_versions(receipt, source)
         if receipt["errors"]:
             raise RuntimeError("pinned toolchain validation failed")
@@ -347,6 +398,7 @@ def main():
         apply_patch(receipt, source, manifest, "tests", {manifest["files"]["tests"]["path"]})
         apply_patch(receipt, source, manifest, "production", allowed)
         applied = True
+        check_candidate_file_sizes(receipt, source, allowed)
         receipt["source_after_patch"] = base.source_facts(source)
         base.dump(artifacts / "receipt.json", receipt)
 

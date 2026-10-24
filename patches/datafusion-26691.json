@@ -3,16 +3,16 @@
   "issue": "https://github.com/apache/datafusion/issues/26691",
   "files": {
     "production": {
-      "patch_sha256": "6432c4ff3d8f018a4bf417d005670f4fe277b7246b95ba341326abd9eb884ac8",
+      "patch_sha256": "19233f97f1bed06dfee8bc2eb79502e4604016eeedc05e2b5a493947ae1b8964",
       "path": "datafusion/physical-optimizer/src/topk_aggregation.rs",
       "head_blob": "c734e9844975ab4d0642efcf25caee2cf0551d0d",
-      "candidate_blob": "507200f44dc57ac8353fcfb92915030f18d76070"
+      "candidate_blob": "859aaa3aaf75e05c80eaaced1ffd9d1eafd196e5"
     },
     "tests": {
-      "patch_sha256": "57fa62deda793e9391b39ec2d3440bdab1de5080cb0b0435b8c1c7712a0f5b69",
+      "patch_sha256": "a7542266d49f91d693074a7c2a9e2fe65cc2d0c98054b56d9d1d7f21cf821a81",
       "path": "datafusion/sqllogictest/test_files/aggregates_topk.slt",
       "head_blob": "50ee8cc5ca534f128cfd5ba123180ac957e2622a",
-      "candidate_blob": "4ab86f09461bba6cee8831391c92e86d4851a58d"
+      "candidate_blob": "ddb5d3a38b8afc12d3e90c25085dea6d7abdad9b"
     }
   }
 }

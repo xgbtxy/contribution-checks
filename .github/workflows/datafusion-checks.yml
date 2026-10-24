@@ -23,6 +23,7 @@ jobs:
       CARGO_BUILD_JOBS: "4"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_INCREMENTAL: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
       RUST_BACKTRACE: "1"
     steps:
       - name: Checkout validation harness
@@ -62,6 +63,7 @@ jobs:
           ref: 039c0b99d5b05e73ff5def029c0131b76b481c6f
           path: datafusion
           submodules: recursive
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Free disk space on temporary runner

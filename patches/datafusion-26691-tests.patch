@@ -1,8 +1,8 @@
 diff --git a/datafusion/sqllogictest/test_files/aggregates_topk.slt b/datafusion/sqllogictest/test_files/aggregates_topk.slt
-index 50ee8cc5c..4ab86f094 100644
+index 50ee8cc5c..ddb5d3a38 100644
 --- a/datafusion/sqllogictest/test_files/aggregates_topk.slt
 +++ b/datafusion/sqllogictest/test_files/aggregates_topk.slt
-@@ -195,6 +195,58 @@ a -1 -1
+@@ -195,6 +195,80 @@ a -1 -1
  NULL 0 0
  a 1 1
  
@@ -28,6 +28,28 @@ index 50ee8cc5c..4ab86f094 100644
 +----
 +-10
 +-9
++
++# A materialized CTE produces rows from its continuation, whose column positions
++# can differ from those of the CTE body. Ordering by g must not rank by max(v).
++statement ok
++SET datafusion.sql_parser.dialect = 'PostgreSQL';
++
++statement ok
++CREATE TABLE topk_cte AS
++SELECT column1 AS g, column2 AS v
++FROM (VALUES (1, 100), (2, 20), (3, 30), (4, 40), (5, 50));
++
++query II
++SELECT q.g, q.score FROM (
++  WITH c AS MATERIALIZED (SELECT max(v) AS score, g FROM topk_cte GROUP BY g)
++  SELECT g, score FROM c
++) q ORDER BY q.g DESC NULLS LAST LIMIT 2;
++----
++5 50
++4 40
++
++statement ok
++SET datafusion.sql_parser.dialect = 'Generic';
 +
 +# A direct sort column remains eligible through renaming and reordering, even
 +# when another projected column is computed.
