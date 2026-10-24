@@ -1,0 +1,110 @@
+name: DataFusion 26691 candidate checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - fmt-clippy
+          - extended
+          - public-api
+          - lint
+    env:
+      CARGO_BUILD_JOBS: "4"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: "1"
+    steps:
+      - name: Checkout validation harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Initialize small evidence bundle
+        run: |
+          mkdir -p artifacts/logs artifacts/diffs
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt = {
+              "status": "workflow_started",
+              "workflow_repository": os.environ.get("GITHUB_REPOSITORY"),
+              "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
+              "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "workflow_harness_sha": os.environ.get("GITHUB_SHA"),
+              "check_group": os.environ.get("CHECK_GROUP"),
+              "source_pin": "039c0b99d5b05e73ff5def029c0131b76b481c6f",
+              "junit_created": False,
+          }
+          Path("artifacts/receipt.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+        env:
+          CHECK_GROUP: ${{ matrix.check }}
+
+      - name: Checkout Apache DataFusion at reviewed baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: apache/datafusion
+          ref: 039c0b99d5b05e73ff5def029c0131b76b481c6f
+          path: datafusion
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Free disk space on temporary runner
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6
+
+      - name: Show available disk space
+        run: df -h
+
+      - name: Install pinned protobuf compiler
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        with:
+          tool: protoc@3.21.12
+
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustc +1.99.0 --version --verbose
+          cargo +1.99.0 --version
+          protoc --version
+
+      - name: Set up uv for repository lint
+        if: matrix.check == 'lint'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          enable-cache: false
+
+      - name: Set up Node.js 24 for repository lint
+        if: matrix.check == 'lint'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "24"
+
+      - name: Run candidate check group
+        env:
+          CHECK_GROUP: ${{ matrix.check }}
+        run: python3 run_checks.py --group "$CHECK_GROUP" --source datafusion --artifacts artifacts
+
+      - name: Upload receipt and small logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: datafusion-26691-checks-${{ matrix.check }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
