@@ -1,0 +1,61 @@
+name: DataFusion 26691 focused red-green regression
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout validation harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Initialize evidence bundle
+        run: |
+          mkdir -p artifacts/logs artifacts/diffs
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path("artifacts/receipt.json").write_text(json.dumps({"status": "workflow_started"}, indent=2) + "\n")
+          PY
+
+      - name: Checkout Apache DataFusion at the reviewed baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: apache/datafusion
+          ref: 039c0b99d5b05e73ff5def029c0131b76b481c6f
+          path: datafusion
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install protoc
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq > artifacts/logs/protoc-install.log 2>&1
+          sudo apt-get install -y protobuf-compiler >> artifacts/logs/protoc-install.log 2>&1
+          protoc --version > artifacts/logs/protoc-version.log 2>&1
+
+      - name: Install and record pinned Rust
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy > artifacts/logs/rust-install.log 2>&1
+          rustc +1.99.0 --version --verbose >> artifacts/logs/rust-install.log 2>&1
+          cargo +1.99.0 --version >> artifacts/logs/rust-install.log 2>&1
+
+      - name: Run focused baseline red and candidate green
+        run: python3 run_regression.py
+
+      - name: Upload focused diffs and full logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: datafusion-26691-red-green-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7

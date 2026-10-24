@@ -1,0 +1,2 @@
+# Unified patches contain meaningful space-prefixed blank context lines.
+patches/*.patch text eol=lf -whitespace
