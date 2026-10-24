@@ -13,7 +13,7 @@ import run_baseline as base
 
 
 ROOT = Path(__file__).resolve().parent
-PIN = "039c0b99d5b05e73ff5def029c0131b76b481c6f"
+PIN = "92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa"
 MANIFEST_PATH = ROOT / "patches" / "datafusion-26691.json"
 PATCH_PATHS = {
     "tests": ROOT / "patches" / "datafusion-26691-tests.patch",
@@ -231,6 +231,16 @@ def record_versions(receipt, source):
             results[name] = version
             if result["exit_code"] != 0 or result["timed_out"] or not version.startswith(prefix):
                 add_error(receipt, f"unexpected {name} version: {version}")
+        for name, command in (
+            ("cargo-depgraph", ["cargo-depgraph", "--version"]),
+            ("graphviz-dot", ["dot", "-V"]),
+            ("cmake", ["cmake", "--version"]),
+        ):
+            result = run_command(receipt, source, f"version-{name}", command, timeout=30)
+            version = (result["stdout"] + result["stderr"]).strip()
+            results[name] = version
+            if result["exit_code"] != 0 or result["timed_out"] or not version:
+                add_error(receipt, f"could not query {name} version")
     receipt["toolchain"] = results
     base.dump(artifact_path(receipt, "receipt.json"), receipt)
 

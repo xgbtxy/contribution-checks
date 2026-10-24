@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: apache/datafusion
-          ref: 039c0b99d5b05e73ff5def029c0131b76b481c6f
+          ref: 92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa
           path: datafusion
           submodules: recursive
           persist-credentials: false

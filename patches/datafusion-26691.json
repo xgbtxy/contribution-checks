@@ -1,5 +1,5 @@
 {
-  "base": "039c0b99d5b05e73ff5def029c0131b76b481c6f",
+  "base": "92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa",
   "issue": "https://github.com/apache/datafusion/issues/26691",
   "files": {
     "production": {

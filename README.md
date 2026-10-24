@@ -1,6 +1,6 @@
 # DataFusion #26691 baseline check
 
-This diagnostic builds the official SQLLogicTest runner from Apache DataFusion commit `039c0b99d5b05e73ff5def029c0131b76b481c6f` and runs four five-row SQL files from isolated temporary `test_files/` directories. The DataFusion checkout stays unchanged.
+This diagnostic builds the official SQLLogicTest runner from Apache DataFusion commit `92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa` and runs four five-row SQL files from isolated temporary `test_files/` directories. The DataFusion checkout stays unchanged.
 
 `oracles/issue-on.slt` is the reproduction reported by `@jayzhan211` in [DataFusion issue #26691](https://github.com/apache/datafusion/issues/26691), not an independent discovery. Its hand-written answer is the correct result (`a -2`, `d -3`). `issue-off.slt` uses the same oracle with the original TopK aggregation switch disabled. `positive.slt` sorts by a renamed direct aggregate column and includes computed siblings. `distinct-probe.slt` explores a separate computed projection over distinct values.
 

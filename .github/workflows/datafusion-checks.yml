@@ -46,7 +46,7 @@ jobs:
               "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
               "workflow_harness_sha": os.environ.get("GITHUB_SHA"),
               "check_group": os.environ.get("CHECK_GROUP"),
-              "source_pin": "039c0b99d5b05e73ff5def029c0131b76b481c6f",
+              "source_pin": "92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa",
               "junit_created": False,
           }
           Path("artifacts/receipt.json").write_text(
@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: apache/datafusion
-          ref: 039c0b99d5b05e73ff5def029c0131b76b481c6f
+          ref: 92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa
           path: datafusion
           submodules: recursive
           fetch-depth: 0
@@ -96,6 +96,17 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
+
+      - name: Install full-lint dependencies
+        if: matrix.check == 'lint'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake graphviz
+          cargo +1.99.0 install cargo-depgraph --version '^1.6' --locked
+          cargo-depgraph --version
+          dot -V
+          cmake --version
 
       - name: Run candidate check group
         env:

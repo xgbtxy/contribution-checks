@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PIN = "039c0b99d5b05e73ff5def029c0131b76b481c6f"
+PIN = "92f170cb7ea5ad87bdff8fde89ac7a1541f3b0fa"
 ROOT = Path(__file__).resolve().parent
 ORACLES = ROOT / "oracles"
 QUERIES = {
