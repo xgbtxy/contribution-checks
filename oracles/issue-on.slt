@@ -1,0 +1,14 @@
+# Reproducer from Apache DataFusion issue #26691, reported by @jayzhan211 (not an independent discovery).
+# https://github.com/apache/datafusion/issues/26691
+# With the original TopK aggregation optimizer enabled, the correct oracle is:
+statement ok
+CREATE TABLE t AS SELECT column1 AS g, column2 AS v FROM (VALUES ('a', 2), ('b', 10), ('c', 9), ('d', 3), ('e', 7));
+
+statement ok
+SET datafusion.optimizer.enable_topk_aggregation = true;
+
+query TI
+SELECT g, -"max(t.v)" AS "max(t.v)" FROM (SELECT g, max(v) FROM t GROUP BY g) ORDER BY 2 DESC LIMIT 2;
+----
+a -2
+d -3

@@ -1,0 +1,12 @@
+# Separate exploratory probe: distinct values followed by a computed negative projection.
+statement ok
+CREATE TABLE t AS SELECT column1 AS g, column2 AS v FROM (VALUES ('a', 2), ('b', 10), ('c', 9), ('d', 3), ('e', 7));
+
+statement ok
+SET datafusion.optimizer.enable_topk_aggregation = true;
+
+query I
+SELECT -v AS v FROM (SELECT DISTINCT v FROM t) ORDER BY v LIMIT 2;
+----
+-10
+-9

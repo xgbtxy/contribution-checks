@@ -1,0 +1,12 @@
+# Same official issue #26691 reproduction from @jayzhan211 and the same correct oracle. The flag disables the original TopK aggregation optimizer.
+statement ok
+CREATE TABLE t AS SELECT column1 AS g, column2 AS v FROM (VALUES ('a', 2), ('b', 10), ('c', 9), ('d', 3), ('e', 7));
+
+statement ok
+SET datafusion.optimizer.enable_topk_aggregation = false;
+
+query TI
+SELECT g, -"max(t.v)" AS "max(t.v)" FROM (SELECT g, max(v) FROM t GROUP BY g) ORDER BY 2 DESC LIMIT 2;
+----
+a -2
+d -3
