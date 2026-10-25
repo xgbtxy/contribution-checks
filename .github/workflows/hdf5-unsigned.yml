@@ -1,0 +1,38 @@
+name: HDF5 h5diff unsigned Linux validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-lp64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout validation harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout the exact submitted HDF5 commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: xgbtxy/hdf5
+          ref: da4aec7d78a0e3a0f1724262bd6c68d0c30eb3d3
+          path: hdf5
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Validate HDF5 unsigned comparisons on LP64
+        run: python3 run_hdf5_unsigned.py --source hdf5 --manifest hdf5-unsigned-manifest.json --artifacts artifacts
+
+      - name: Upload source-bound logs and JUnit results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: hdf5-unsigned-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "repository": "xgbtxy/hdf5",
+  "upstream_repository": "HDFGroup/hdf5",
+  "pull_request": "https://github.com/HDFGroup/hdf5/pull/6780",
+  "issue": 6756,
+  "source_head": "da4aec7d78a0e3a0f1724262bd6c68d0c30eb3d3",
+  "source_parent": "bee3442edb325310f79770f96128125de5274499",
+  "changed_blobs": {
+    "release_docs/CHANGELOG.md": "8c27d7520c5c1883330b4294530bb5936dfbb4b5",
+    "tools/lib/h5diff_array.c": "bdfd3f5c951a7c7705e94e4655293b2666d918da",
+    "tools/test/h5diff/CMakeTests.cmake": "3d2a7d5c51671340f0e977e495db5ee99f2b21a3",
+    "tools/test/h5diff/h5diffgentest.c": "f975e252d43ea6fc12ead60f7c15acf04481f9b6",
+    "tools/test/testfiles/h5diff_dtypes.h5": "f898a5d21ea4b874798d7729bb4a2ea4a6760865",
+    "tools/test/h5diff/expected/h5diff_unsigned_u16_relative.txt": "97bd30f14dc7f8a61503b1dfe456a1d68b7c81e2",
+    "tools/test/h5diff/expected/h5diff_unsigned_u32_delta.txt": "9c231bd2ae2b60fc557f773c5c66c353faec57ab",
+    "tools/test/h5diff/expected/h5diff_unsigned_u32_delta_boundary.txt": "059c3ed5ad480fbea506819c2404cd1954ef87b8",
+    "tools/test/h5diff/expected/h5diff_unsigned_u32_delta_reversed.txt": "fca0227e4c3a6a9eb285ebb83946daa135dbfbab",
+    "tools/test/h5diff/expected/h5diff_unsigned_u32_relative.txt": "059bb4582267d6705b29fe411e513c6cab775fee",
+    "tools/test/h5diff/expected/h5diff_unsigned_u32_relative_control.txt": "f6f42b48039a09dac2255f77a62cdc05a09c9f04",
+    "tools/test/h5diff/expected/h5diff_unsigned_u32_report.txt": "fcdc7af75872e7511be5c53cc6a2ed1a118026dc",
+    "tools/test/h5diff/expected/h5diff_unsigned_u64_relative.txt": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "tools/test/h5diff/expected/h5diff_unsigned_u8_relative.txt": "901948a1448249abf93e6844084eec2a4e119619",
+    "tools/test/h5diff/expected/h5diff_unsigned_zero_relative.txt": "ff0698082b548245f343d6cb6eb8982e5b03725b"
+  },
+  "production_only_blobs": {
+    "tools/lib/h5diff_array.c": "6cdac8f54be0ae2c1ec4f4292712ed2b43c46fa2"
+  },
+  "baseline_test_cases": {
+    "must_fail": [
+      "H5DIFF-h5diff_unsigned_u32_report",
+      "H5DIFF-h5diff_unsigned_u32_delta",
+      "H5DIFF-h5diff_unsigned_u32_relative",
+      "H5DIFF-h5diff_unsigned_u32_relative_control",
+      "H5DIFF-h5diff_unsigned_u32_delta_reversed",
+      "H5DIFF-h5diff_unsigned_u16_relative",
+      "H5DIFF-h5diff_unsigned_u8_relative",
+      "H5DIFF-h5diff_unsigned_u64_relative"
+    ],
+    "must_pass": [
+      "H5DIFF-h5diff_unsigned_u32_delta_boundary",
+      "H5DIFF-h5diff_unsigned_zero_relative"
+    ]
+  },
+  "runner": {
+    "os": "ubuntu-24.04",
+    "abi": "LP64; sizeof(unsigned int)=4, sizeof(unsigned long)=8",
+    "generator": "Ninja",
+    "configuration": "Release static serial tools, standard HDF5 compression/plugin defaults",
+    "limits": {
+      "configure_seconds": 360,
+      "baseline_build_seconds": 600,
+      "candidate_build_seconds": 420,
+      "ctest_seconds": 180
+    },
+    "artifacts_retention_days": 7
+  }
+}

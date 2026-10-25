@@ -15,3 +15,7 @@ The seven-day artifact contains the receipt, complete stdout/stderr logs, Cargo 
 Run `python run_baseline.py --self-check` to validate the hand-written oracles without compiling DataFusion. The GitHub Actions workflow is the native execution path.
 
 The focused regression workflow applies the new upstream SLT tests to the unchanged source, verifies their two expected result mismatches, then applies the production patch and reruns the same SLT file. The candidate-checks workflow separately runs formatting and Clippy, extended workspace tests, the core and CLI tests, and the repository lint suite. Their receipts bind the tested source to the patch hashes in `patches/datafusion-26691.json`.
+
+## HDF5 h5diff unsigned validation
+
+`.github/workflows/hdf5-unsigned.yml` is a manual Ubuntu 24.04 check for HDF5 PR #6780. It validates the exact submitted commit and all changed Git blob IDs, runs the ten unsigned h5diff cases against the parent source and then the candidate, restores the candidate after the baseline phase, and runs the complete serial h5diff CTest suite. Receipts, JUnit files, and command logs are uploaded for seven days. The workflow does not schedule itself or rerun repository workflows.
