@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -70,7 +71,7 @@ def main():
     assert red_code == 8 and red['tests'] == 1
     assert red['failed'] == ['xsf_tests_test_gammainc']
     red_log = (ARTIFACTS / 'red.log').read_text()
-    assert 'test cases:  4 |  4 failed' in red_log or 'test cases: 4 | 4 failed' in red_log
+    assert re.search(r'test cases:\s*4\s*\|\s*(?:0 passed\s*\|\s*)?4 failed', red_log)
     apply('production', [MANIFEST['production']])
     candidate, candidate_code = tests('candidate', '-j', '2')
     assert candidate['tests'] == baseline['tests'] + 1
