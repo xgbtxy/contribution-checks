@@ -11,3 +11,5 @@ It retains the original complete-suite result, proves the new regression fails
 against unchanged production code, then applies the production patch and reruns
 the full suite plus formatting. Existing baseline failures remain visible.
 The source commit, patch SHA-256 values and both candidate Git blobs are checked.
+The test environment and workspace-specific Pixi build caches are cleared between
+phases so that newly added tests and modified headers cannot reuse stale binaries.

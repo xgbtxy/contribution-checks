@@ -2,6 +2,7 @@
 import datetime
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -59,6 +60,13 @@ def tests(name, *extra):
     assert exit_code in (0, 8), f'{name}: failed before a normal CTest result'
     return xml_result(name), exit_code
 
+def rebuild_environment(phase):
+    # These project-local caches belong to this disposable validation runner.
+    assert os.environ.get('GITHUB_REPOSITORY') == 'xgbtxy/contribution-checks'
+    assert SOURCE.resolve().parent == pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve()
+    assert run(phase + '-clean-environment', ['pixi', 'clean', '--environment', 'tests-release']) == 0
+    assert run(phase + '-clean-build', ['pixi', 'clean', '--build']) == 0
+
 def main():
     assert git('rev-parse', 'HEAD') == MANIFEST['base']
     assert not git('status', '--porcelain')
@@ -67,12 +75,14 @@ def main():
     baseline, _ = tests('baseline', '-j', '2')
     apply('tests', [MANIFEST['test']])
     subprocess.run(['git', 'add', '-N', MANIFEST['test']], cwd=SOURCE, check=True)
+    rebuild_environment('red')
     red, red_code = tests('red', '-R', '^xsf_tests_test_gammainc$')
     assert red_code == 8 and red['tests'] == 1
     assert red['failed'] == ['xsf_tests_test_gammainc']
     red_log = (ARTIFACTS / 'red.log').read_text()
     assert re.search(r'test cases:\s*4\s*\|\s*(?:0 passed\s*\|\s*)?4 failed', red_log)
     apply('production', [MANIFEST['production']])
+    rebuild_environment('candidate')
     candidate, candidate_code = tests('candidate', '-j', '2')
     assert candidate['tests'] == baseline['tests'] + 1
     assert set(candidate['failed']) <= set(baseline['failed'])
