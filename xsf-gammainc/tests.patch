@@ -1,0 +1,53 @@
+diff --git a/tests/xsf_tests/test_gammainc.cpp b/tests/xsf_tests/test_gammainc.cpp
+new file mode 100644
+index 0000000..f03294c
+--- /dev/null
++++ b/tests/xsf_tests/test_gammainc.cpp
+@@ -0,0 +1,47 @@
++#include "../testing_utils.h"
++
++#include <xsf/gamma.h>
++
++TEST_CASE("gammainc large shape lower tail", "[gammainc][gammaincc][xsf_tests]") {
++    // References from high-precision quadrature of the defining integral in mpmath.
++    using test_case = std::tuple<double, double, double>;
++    auto [a, x, expected] = GENERATE(
++        test_case{1e5, 98400., 1.8301262276876793e-7}, test_case{1e6, 995000., 2.7495803592700708e-7},
++        test_case{1e6, 990000., 5.4466446930108087e-24}, test_case{1e6, 995499., 3.2807651348955710e-6},
++        test_case{1e6, 995500., 3.2963040141976454e-6}, test_case{1e6, 995501., 3.3119132778517376e-6},
++        test_case{1e8, 99954000., 2.1056486712389221e-6}, test_case{1e8, 99950000., 2.8546421399586261e-7},
++        test_case{1e8, 99700000., 1.9908822896467062e-198}, test_case{1e12, 999995000000., 2.8663967832502037e-7},
++        test_case{1e16, 9999999500000000., 2.8665145294165293e-7}
++    );
++    CAPTURE(a, x, expected);
++    CHECK(std::abs(xsf::gammainc(a, x) - expected) <= 5e-13 * expected);
++    CHECK(std::abs(xsf::gammaincc(a, x) - (1 - expected)) <= 2e-15);
++}
++
++TEST_CASE("gammainc large shape subnormal tail", "[gammainc][xsf_tests]") {
++    using test_case = std::tuple<double, double, double>;
++    auto [a, x, expected] = GENERATE(
++        test_case{2e5, 183453.09696650156, 1.8685537156663741e-317}, test_case{1e8, 99620000., 4.6087915212496266e-317},
++        test_case{1e12, 999962000000., 2.8331302777257532e-316},
++        test_case{1e16, 9999996200000000., 2.8849006448550869e-316}
++    );
++    CAPTURE(a, x, expected);
++    double actual = xsf::gammainc(a, x);
++    CHECK(actual > 0.0);
++    CHECK(std::abs(actual - expected) <= 2 * std::numeric_limits<double>::denorm_min());
++}
++
++TEST_CASE("gammaincinv large shape lower tail", "[gammaincinv][xsf_tests]") {
++    using test_case = std::tuple<double, double, double>;
++    auto [a, p, expected] = GENERATE(
++        test_case{1e6, 2.7495803592700708e-7, 995000.}, test_case{1e6, 5.4466446930108087e-24, 990000.},
++        test_case{1e8, 2.1056486712389221e-6, 99954000.}, test_case{1e8, 2.8546421399586261e-7, 99950000.}
++    );
++    CAPTURE(a, p, expected);
++    CHECK(std::abs(xsf::gammaincinv(a, p) - expected) <= 8 * std::numeric_limits<double>::epsilon() * expected);
++}
++
++TEST_CASE("gammainc large float shape lower tail", "[gammainc][xsf_tests]") {
++    float expected = 2.1056486712389221e-6f;
++    CHECK(std::abs(xsf::gammainc(1e8f, 99954000.f) - expected) <= 4 * std::numeric_limits<float>::epsilon() * expected);
++}

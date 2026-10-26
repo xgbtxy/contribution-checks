@@ -1,0 +1,56 @@
+diff --git a/include/xsf/cephes/igam.h b/include/xsf/cephes/igam.h
+index e169846..1670a4d 100644
+--- a/include/xsf/cephes/igam.h
++++ b/include/xsf/cephes/igam.h
+@@ -218,6 +218,8 @@ namespace cephes {
+             return (ans * ax);
+         }
+ 
++        XSF_HOST_DEVICE inline double asymptotic_series(double a, double x, int func);
++
+         /* Compute igam using DLMF 8.11.4. */
+         XSF_HOST_DEVICE inline double igam_series(double a, double x) {
+             int i;
+@@ -242,6 +244,15 @@ namespace cephes {
+                 }
+             }
+ 
++            if (i == igam_MAXITER) {
++                // Large shapes can need far more terms just outside the asymptotic window.
++                if (a > igam_LARGE && cxx::abs(x - a) / a < igam_SMALLRATIO) {
++                    return asymptotic_series(a, x, IGAM);
++                }
++                set_error("igam_series", SF_ERROR_NO_RESULT, NULL);
++                return cxx::numeric_limits<double>::quiet_NaN();
++            }
++
+             return (ans * ax / a);
+         }
+ 
+@@ -293,7 +304,9 @@ namespace cephes {
+             } else {
+                 eta = 0;
+             }
+-            res = 0.5 * xsf::cephes::erfc(sgn * eta * cxx::sqrt(a / 2));
++            double erfc_arg = sgn * eta * cxx::sqrt(a / 2);
++            bool scaled_erfc = erfc_arg > 0 && erfc_arg * erfc_arg > MAXLOG;
++            res = scaled_erfc ? 0.0 : 0.5 * xsf::cephes::erfc(erfc_arg);
+ 
+             for (k = 0; k < igam_asymp_coeff_K; k++) {
+                 ck = igam_asymp_coeff_d[k][0];
+@@ -320,6 +333,15 @@ namespace cephes {
+                 absoldterm = absterm;
+                 afac /= a;
+             }
++            if (scaled_erfc) {
++                // Factor out the exponential before rounding a subnormal tail probability.
++                double exponent = -0.5 * a * eta * eta;
++                if (exponent < MINLOG) {
++                    return 0.0;
++                }
++                double erfc_scaled = polevl(erfc_arg, ndtr_R, 5) / p1evl(erfc_arg, ndtr_S, 6);
++                return cxx::exp(exponent) * (0.5 * erfc_scaled + sgn * sum / cxx::sqrt(2 * M_PI * a));
++            }
+             res += sgn * cxx::exp(-0.5 * a * eta * eta) * sum / cxx::sqrt(2 * M_PI * a);
+ 
+             return res;

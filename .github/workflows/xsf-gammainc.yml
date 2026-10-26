@@ -1,0 +1,45 @@
+name: XSF incomplete gamma accuracy validation
+
+on:
+  push:
+    branches: [validation/xsf-gammainc-26471]
+    paths:
+      - .github/workflows/xsf-gammainc.yml
+      - run_xsf_gammainc.py
+      - xsf-gammainc/**
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout validation harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Checkout pinned official XSF
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: scipy/xsf
+          ref: 8e321105803530610770bcb6c6db2017322c976b
+          path: source
+          persist-credentials: false
+      - name: Install pinned Pixi
+        uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f
+        with:
+          pixi-version: v0.83.0
+          run-install: false
+          cache: false
+      - name: Verify original and corrected numerical implementation
+        run: python3 run_xsf_gammainc.py
+      - name: Upload logs and source-bound test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: xsf-gammainc-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
