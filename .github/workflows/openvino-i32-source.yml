@@ -1,0 +1,126 @@
+name: OpenVINO i32 precision against current ARM64 source
+
+on:
+  push:
+    branches: [validation/openvino-i32-39337]
+    paths:
+      - .github/workflows/openvino-i32-source.yml
+      - run_openvino_source_baseline.py
+      - run_openvino_i32_matrix.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-build-baseline:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: openvinotoolkit/openvino
+          ref: 7b74de45c1408683f38aa322db5ee3ab122db572
+          path: openvino
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y scons ninja-build libtbb-dev python3.12-dev python3.12-venv
+          python3.12 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check \
+            numpy==2.3.4 openvino-telemetry==2025.2.0 setuptools wheel build packaging
+      - name: Fetch only the CPU plugin's pinned submodules
+        run: |
+          mkdir -p artifacts/openvino-source
+          git -C openvino submodule update --init --depth 1 -- \
+            src/plugins/intel_cpu/thirdparty/onednn \
+            src/plugins/intel_cpu/thirdparty/ComputeLibrary \
+            src/bindings/python/thirdparty/pybind11 \
+            thirdparty/pugixml \
+            thirdparty/json/nlohmann_json
+          git -C openvino submodule status -- \
+            src/plugins/intel_cpu/thirdparty/onednn \
+            src/plugins/intel_cpu/thirdparty/ComputeLibrary \
+            src/bindings/python/thirdparty/pybind11 \
+            thirdparty/pugixml \
+            thirdparty/json/nlohmann_json > artifacts/openvino-source/submodules.txt
+      - name: Configure a shared CPU runtime with the Python API
+        run: |
+          mkdir -p artifacts/openvino-source
+          git -C openvino rev-parse HEAD > artifacts/openvino-source/source-sha.txt
+          git -C openvino status --short > artifacts/openvino-source/source-status.txt
+          cmake -S openvino -B openvino/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPython3_EXECUTABLE="$(pwd)/.venv/bin/python" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DENABLE_PLUGINS_XML=ON \
+            -DENABLE_INTEL_CPU=ON \
+            -DENABLE_INTEL_GPU=OFF \
+            -DENABLE_INTEL_NPU=OFF \
+            -DENABLE_MLAS_FOR_CPU=OFF \
+            -DENABLE_KLEIDIAI_FOR_CPU=OFF \
+            -DTHREADING=SEQ \
+            -DENABLE_SYSTEM_TBB=ON \
+            -DARM_COMPUTE_SCONS_JOBS=2 \
+            -DENABLE_PYTHON=ON \
+            -DENABLE_WHEEL=OFF \
+            -DENABLE_PYTHON_PACKAGING=OFF \
+            -DENABLE_PROFILING_ITT=OFF \
+            -DENABLE_SNAPPY_COMPRESSION=OFF \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SAMPLES=OFF \
+            -DENABLE_DOCS=OFF \
+            -DENABLE_NCC_STYLE=OFF \
+            -DENABLE_CLANG_FORMAT=OFF \
+            -DENABLE_OV_IR_FRONTEND=OFF \
+            -DENABLE_OV_ONNX_FRONTEND=OFF \
+            -DENABLE_OV_PADDLE_FRONTEND=OFF \
+            -DENABLE_OV_TF_FRONTEND=OFF \
+            -DENABLE_OV_TF_LITE_FRONTEND=OFF \
+            -DENABLE_OV_PYTORCH_FRONTEND=OFF \
+            -DENABLE_OV_JAX_FRONTEND=OFF \
+            -DENABLE_OV_GGUF_FRONTEND=OFF \
+            -DENABLE_PROXY=OFF \
+            -DENABLE_MULTI=OFF \
+            -DENABLE_AUTO=OFF \
+            -DENABLE_AUTO_BATCH=OFF \
+            -DENABLE_HETERO=OFF \
+            -DENABLE_TEMPLATE=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            2>&1 | tee artifacts/openvino-source/configure.log
+          cp openvino/build/CMakeCache.txt artifacts/openvino-source/CMakeCache.txt
+      - name: Build current OpenVINO source and native CPU plugin
+        run: |
+          set -o pipefail
+          cmake --build openvino/build --parallel 2 \
+            2>&1 | tee artifacts/openvino-source/build.log
+      - name: Compare current-source ARM64 results with exact integer expectations
+        run: |
+          set -o pipefail
+          plugin_config="$(find openvino/bin/arm64 -name plugins.xml -print -quit)"
+          python_package="$(find openvino/bin/arm64 -path '*/python/openvino/__init__.py' -print -quit | sed 's|/openvino/__init__\.py$||')"
+          test -n "$plugin_config"
+          test -n "$python_package"
+          export OPENVINO_PLUGIN_CONFIG="$plugin_config"
+          export PYTHONPATH="$python_package${PYTHONPATH:+:$PYTHONPATH}"
+          export LD_LIBRARY_PATH="$(dirname "$plugin_config")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          .venv/bin/python run_openvino_source_baseline.py --expect-known-failure \
+            --output artifacts/openvino-source/source-baseline.json \
+            2>&1 | tee artifacts/openvino-source/source-baseline.log
+          .venv/bin/python run_openvino_i32_matrix.py \
+            --plugin-config "$plugin_config" \
+            --output artifacts/openvino-source/source-22-op-matrix.json \
+            2>&1 | tee artifacts/openvino-source/source-22-op-matrix.log
+      - name: Upload source-bound configuration, build, and baseline receipts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: openvino-i32-source-arm64-${{ github.run_id }}
+          path: artifacts/openvino-source/
+          if-no-files-found: error
+          retention-days: 14
