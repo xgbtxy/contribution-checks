@@ -71,13 +71,6 @@ def cases():
     wide_x = X.astype(np.int64)
     wide_neighbor = Y_NEIGHBOR.astype(np.int64)
 
-    def trunc_divide(left, right):
-        quotients = []
-        for a, b in zip(left.flat, right.flat):
-            magnitude = abs(int(a)) // abs(int(b))
-            quotients.append(-magnitude if (a < 0) != (b < 0) else magnitude)
-        return np.array(quotients, dtype=np.int64).reshape(left.shape)
-
     definitions = [
         _binary_case("Add", ops.add, X, Y_ADD, lambda a, b: a + b),
         _binary_case("Subtract", ops.subtract, X, Y_SUB, lambda a, b: a - b),
@@ -116,7 +109,8 @@ def cases():
     params = [ops.parameter(X.shape, np.int32)]
     definitions.append(("Clamp", params, ops.clamp(params[0], INT32_MIN, INT32_MAX),
                         lambda: np.clip(wide_x, INT32_MIN, INT32_MAX), [X]))
-    definitions.append(_binary_case("Divide", ops.divide, X, Y_DIVIDE, trunc_divide))
+    # opset13.divide constructs Divide with m_pythondiv=True by default.
+    definitions.append(_binary_case("Divide", ops.divide, X, Y_DIVIDE, np.floor_divide))
     return definitions
 
 
