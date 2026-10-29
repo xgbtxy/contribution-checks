@@ -320,6 +320,35 @@ def main() -> int:
     }
     record(receipt, state)
 
+    # Compare the wider diagnostic on the same original and candidate libraries.
+    # Each probe is a fresh process so the original plugin cannot remain loaded.
+    baseline_python_build = run(
+        ["cmake", "--build", str(build), "--target", "pyopenvino", "--parallel", "2"],
+        ROOT, artifacts / "baseline-python-api-build.log", timeout=35 * 60,
+    )
+    if baseline_python_build.returncode:
+        raise RuntimeError("Original source Python API did not build for the diagnostic comparison")
+    original_plugin = next((source / "bin").rglob("plugins.xml"))
+    original_package = next((source / "bin").rglob("python/openvino/__init__.py")).parents[1]
+    original_env = {
+        **os.environ,
+        "PYTHONPATH": str(original_package),
+        "LD_LIBRARY_PATH": str(original_plugin.parent) + (os.pathsep + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else ""),
+    }
+    original_probe = run(
+        [str(python_executable), str(ROOT / "run_openvino_i32_matrix.py"), "--plugin-config", str(original_plugin),
+         "--output", str(artifacts / "baseline-22-op-matrix.json")],
+        ROOT, artifacts / "baseline-22-op-matrix.log", timeout=20 * 60, env=original_env,
+    )
+    if original_probe.returncode:
+        raise RuntimeError("Original source Python diagnostic did not execute")
+    original_matrix = json.loads((artifacts / "baseline-22-op-matrix.json").read_text(encoding="utf-8"))
+    if original_matrix["summary"]["cases_with_errors"]:
+        raise RuntimeError("Original diagnostic has runtime errors, so numerical comparisons would be incomplete")
+    state["baseline"]["matrix_summary"] = original_matrix["summary"]
+    expected_hashes(source, manifest, {"tests"})
+    record(receipt, state)
+
     apply_patch(source, "production.patch", manifest, state, artifacts)
     expected_hashes(source, manifest, {"tests", "production"})
     if tracked_changes(source) != test_paths | production_paths:
@@ -435,6 +464,22 @@ def main() -> int:
         record(receipt, state)
         if set(observed) != required_cases or any(value != "pass" for value in observed.values()):
             raise RuntimeError("A source Python inference case within the arithmetic patch's scope did not pass")
+        originals = {entry["name"]: entry for entry in original_matrix["cases"]}
+        comparisons = []
+        for entry in matrix["cases"]:
+            original = originals[entry["name"]]
+            if entry["expected"] != original["expected"]:
+                raise RuntimeError(f"Diagnostic expectations changed between phases: {entry['name']}")
+            comparisons.append({"name": entry["name"], "original_status": original["status"],
+                                "candidate_status": entry["status"], "original_mismatches": original["mismatches"],
+                                "candidate_mismatches": entry["mismatches"],
+                                "actual_outputs_unchanged": entry.get("actual") == original.get("actual")})
+            if entry["status"] == "error" or entry["mismatches"] > original["mismatches"]:
+                state["optional_python_probes"]["comparison"] = comparisons
+                record(receipt, state)
+                raise RuntimeError(f"Diagnostic regressed against the original source: {entry['name']}")
+        state["optional_python_probes"]["comparison"] = comparisons
+        state["optional_python_probes"]["no_diagnostic_regressions"] = True
     else:
         record(receipt, state)
         raise RuntimeError("Source Python inference did not produce its diagnostic report")
