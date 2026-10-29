@@ -16,6 +16,10 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 PATCH_ROOT = ROOT / "patches" / "openvino-i32"
+UPSTREAM_LFS_ATTRIBUTE_MISMATCHES = {
+    "docs/articles_en/physical-ai/assets/physicalai.png",
+    "docs/articles_en/physical-ai/assets/physicalai.svg",
+}
 
 
 def sha256(path: Path) -> str:
@@ -78,7 +82,22 @@ def record(path: Path, state: dict) -> None:
 
 def tracked_changes(source: Path) -> set[str]:
     lines = git(source, "status", "--porcelain=v1", "--untracked-files=all").splitlines()
-    return {line[3:].replace("\\", "/") for line in lines}
+    changed = set()
+    for line in lines:
+        relative = line[3:].replace("\\", "/")
+        path = source / relative
+        # Upstream stores these two assets as full blobs while declaring LFS.
+        # Ignore a clean-filter-only report only when the raw bytes and mode are
+        # still exactly the committed regular file. No source edits are waived.
+        if line[:2] == " M" and relative in UPSTREAM_LFS_ATTRIBUTE_MISMATCHES:
+            tree_entry = git(source, "ls-tree", "HEAD", "--", relative)
+            if (tree_entry.startswith("100644 blob ") and path.is_file()
+                    and not (path.stat().st_mode & 0o111)
+                    and git(source, "hash-object", "--no-filters", str(path))
+                    == git(source, "rev-parse", f"HEAD:{relative}")):
+                continue
+        changed.add(relative)
+    return changed
 
 
 def expected_hashes(source: Path, manifest: dict, applied_groups: set[str]) -> None:
@@ -151,8 +170,21 @@ def main() -> int:
         raise RuntimeError("Unsupported patch manifest schema")
     if git(source, "rev-parse", "HEAD") != manifest["base_commit"]:
         raise RuntimeError("Source checkout is not at the manifest's pinned base commit")
+    artifacts.mkdir(parents=True, exist_ok=True)
+    raw_initial_status = git(source, "status", "--porcelain=v1", "--untracked-files=all")
+    (artifacts / "initial-source-status.txt").write_text(raw_initial_status + "\n", encoding="utf-8")
+    lfs_asset_receipt = {}
+    for relative in UPSTREAM_LFS_ATTRIBUTE_MISMATCHES:
+        path = source / relative
+        lfs_asset_receipt[relative] = {
+            "committed_blob": git(source, "rev-parse", f"HEAD:{relative}"),
+            "raw_worktree_blob": git(source, "hash-object", "--no-filters", str(path)),
+            "committed_tree_entry": git(source, "ls-tree", "HEAD", "--", relative),
+            "worktree_mode": oct(path.stat().st_mode),
+        }
+    (artifacts / "upstream-lfs-asset-check.json").write_text(json.dumps(lfs_asset_receipt, indent=2), encoding="utf-8")
     if tracked_changes(source):
-        raise RuntimeError("Source checkout must be clean before applying the reviewed patches")
+        raise RuntimeError(f"Source checkout contains actual changes: {sorted(tracked_changes(source))}")
 
     artifacts.mkdir(parents=True, exist_ok=True)
     state = {
