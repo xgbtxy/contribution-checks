@@ -165,6 +165,7 @@ def main():
         "issue": "https://github.com/openvinotoolkit/openvino/issues/39337",
         "kind": "22-operation exact int32 measurement; exceptions and numeric mismatches are reported separately",
         "openvino_version": ov.get_version(),
+        "openvino_module_file": ov.__file__,
         "python": sys.version,
         "platform": platform.platform(),
         "machine": platform.machine(),
@@ -176,7 +177,8 @@ def main():
     }
 
     for name, parameters, node, oracle, inputs in cases():
-        result = {"name": name, "status": "error", "error": None, "mismatches": None}
+        result = {"name": name, "status": "error", "error": None, "mismatches": None,
+                  "operator_attributes": node.get_attributes()}
         try:
             expected = np.asarray(oracle())
             if expected.dtype != np.bool_:

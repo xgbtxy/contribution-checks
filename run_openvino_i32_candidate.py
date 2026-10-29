@@ -164,6 +164,9 @@ def main() -> int:
     parser.add_argument("--python", type=Path, default=ROOT / ".venv" / "bin" / "python")
     args = parser.parse_args()
     source, build, artifacts = args.source.resolve(), args.build.resolve(), args.artifacts.resolve()
+    # Preserve the venv symlink spelling: resolving it selects the system Python
+    # and drops the NumPy installation in the requested environment.
+    python_executable = args.python.absolute()
     manifest_path = PATCH_ROOT / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
@@ -228,7 +231,7 @@ def main() -> int:
         "-DENABLE_MLAS_FOR_CPU=ON", "-DENABLE_KLEIDIAI_FOR_CPU=ON",
         "-DTHREADING=SEQ", "-DENABLE_SYSTEM_TBB=ON",
         "-DARM_COMPUTE_SCONS_JOBS=2", "-DENABLE_ARM_COMPUTE_CMAKE=OFF",
-        "-DENABLE_PYTHON=ON", f"-DPython3_EXECUTABLE={args.python.resolve()}",
+        "-DENABLE_PYTHON=ON", f"-DPython3_EXECUTABLE={python_executable}",
         "-DENABLE_WHEEL=OFF", "-DENABLE_PYTHON_PACKAGING=OFF",
         "-DENABLE_TESTS=ON", "-DENABLE_FUNCTIONAL_TESTS=ON",
         "-DENABLE_CPU_SPECIFIC_TARGET_PER_TEST=ON", "-DENABLE_SAMPLES=OFF",
@@ -408,7 +411,7 @@ def main() -> int:
         "LD_LIBRARY_PATH": str(plugin_config.parent) + (os.pathsep + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else ""),
     }
     matrix_probe = run(
-        [str(args.python.resolve()), str(ROOT / "run_openvino_i32_matrix.py"), "--plugin-config", str(plugin_config), "--output", str(artifacts / "candidate-22-op-matrix.json")],
+        [str(python_executable), str(ROOT / "run_openvino_i32_matrix.py"), "--plugin-config", str(plugin_config), "--output", str(artifacts / "candidate-22-op-matrix.json")],
         ROOT,
         artifacts / "candidate-22-op-matrix.log",
         timeout=20 * 60,
@@ -425,6 +428,19 @@ def main() -> int:
     if (artifacts / "candidate-22-op-matrix.json").is_file():
         matrix = json.loads((artifacts / "candidate-22-op-matrix.json").read_text(encoding="utf-8"))
         state["optional_python_probes"]["matrix_summary"] = matrix.get("summary")
+        required_cases = {"Add", "Subtract", "Multiply", "Minimum", "Maximum", "Abs", "SquaredDifference"}
+        observed = {entry["name"]: entry["status"] for entry in matrix["cases"] if entry["name"] in required_cases}
+        state["optional_python_probes"]["required_arithmetic_cases"] = observed
+        state["optional_python_probes"]["loaded_openvino_module"] = matrix.get("openvino_module_file")
+        record(receipt, state)
+        if set(observed) != required_cases or any(value != "pass" for value in observed.values()):
+            raise RuntimeError("A source Python inference case within the arithmetic patch's scope did not pass")
+    else:
+        record(receipt, state)
+        raise RuntimeError("Source Python inference did not produce its diagnostic report")
+    if matrix_probe.returncode:
+        record(receipt, state)
+        raise RuntimeError("Source Python inference failed to run")
     record(receipt, state)
 
     expected_hashes(source, manifest, {"tests", "production"})
