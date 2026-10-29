@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-29T21:10:27.808553+00:00",
+  "source_repository": "https://github.com/openvinotoolkit/openvino",
+  "base_commit": "7b74de45c1408683f38aa322db5ee3ab122db572",
+  "candidate_kind": "Uncommitted reviewed patch; not an accepted upstream contribution",
+  "patches": {
+    "production.patch": {
+      "sha256": "55df5499a04c9eab5596f994af2da593880d7b26bd780f2ae5a7855760289aea",
+      "paths": [
+        "src/plugins/intel_cpu/src/emitters/plugin/aarch64/jit_eltwise_emitters.cpp",
+        "src/plugins/intel_cpu/src/nodes/eltwise.cpp"
+      ]
+    },
+    "tests.patch": {
+      "sha256": "5da812464ec041f8826ac5be464fddb915bed687d05ec081c709b84f9bdcc2af",
+      "paths": [
+        "src/plugins/intel_cpu/tests/functional/sources.cmake",
+        "src/plugins/intel_cpu/tests/functional/custom/subgraph_tests/src/arm/eltwise_i32_precision.cpp"
+      ]
+    }
+  },
+  "files": {
+    "src/plugins/intel_cpu/src/emitters/plugin/aarch64/jit_eltwise_emitters.cpp": {
+      "group": "production",
+      "original_sha256": "f89e261b909f5654cacad31a1d5ab126ea7c1df8be302de750a39b1c059fb4c2",
+      "candidate_sha256": "4a7ba4c7f152935bf014dceae0974e47027b402ccbdf2cd451327dac50938b17",
+      "candidate_bytes": 159515
+    },
+    "src/plugins/intel_cpu/src/nodes/eltwise.cpp": {
+      "group": "production",
+      "original_sha256": "a059b6a1c0e03997ee1523d291378c7bc942706cd12c85dd5457dff82f4ebf20",
+      "candidate_sha256": "2b8dfd3442fbcf9038ad12795bf3cf44fd91240799458fe868d0a997b98b6ca4",
+      "candidate_bytes": 53125
+    },
+    "src/plugins/intel_cpu/tests/functional/sources.cmake": {
+      "group": "tests",
+      "original_sha256": "9611ed954a01b0e9516f9cc5a27cfa1fd894d62f2d3db89ef132d1b32596c2c6",
+      "candidate_sha256": "8b115fd67af8b0cf2f53cd12f8ed84cef73b4326a96d0056e34ee424c625569a",
+      "candidate_bytes": 72734
+    },
+    "src/plugins/intel_cpu/tests/functional/custom/subgraph_tests/src/arm/eltwise_i32_precision.cpp": {
+      "group": "tests",
+      "original_sha256": null,
+      "candidate_sha256": "688c6caf5c8d87abb751819bd867bd41be4bb7574bbf87aac157c9d3b5fcc2bb",
+      "candidate_bytes": 13472
+    }
+  },
+  "test_target": "ov_cpu_func_subgraph_arm_eltwise_i32_precision",
+  "test_filter": "AArch64EltwiseI32Precision.*",
+  "scope": "Eight ARM64 i32 arithmetic emitters and fusion eligibility; other issue39337 operations are not fixed by this patch."
+}

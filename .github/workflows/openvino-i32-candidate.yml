@@ -1,0 +1,67 @@
+name: OpenVINO i32 candidate red-green validation on ARM64
+
+on:
+  push:
+    branches: [validation/openvino-i32-39337]
+    paths:
+      - .github/workflows/openvino-i32-candidate.yml
+      - run_openvino_i32_candidate.py
+      - patches/openvino-i32/manifest.json
+      - patches/openvino-i32/production.patch
+      - patches/openvino-i32/tests.patch
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-build-red-green:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - name: Checkout validation harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Checkout the exact original OpenVINO source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: openvinotoolkit/openvino
+          ref: 7b74de45c1408683f38aa322db5ee3ab122db572
+          path: openvino
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install CPU build and Python probe prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y scons ninja-build libtbb-dev python3.12-dev python3.12-venv
+          python3.12 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check \
+            numpy==2.3.4 openvino-telemetry==2025.2.0 setuptools wheel build packaging
+          mkdir -p artifacts/openvino-i32-candidate
+          python3.12 --version > artifacts/openvino-i32-candidate/python.txt
+          uname -a > artifacts/openvino-i32-candidate/host.txt
+          lscpu >> artifacts/openvino-i32-candidate/host.txt
+          git -C openvino rev-parse HEAD > artifacts/openvino-i32-candidate/source-sha.txt
+      - name: Initialize only the pinned runtime and test submodules
+        run: |
+          git -C openvino submodule update --init --depth 1 -- \
+            src/plugins/intel_cpu/thirdparty/onednn \
+            src/plugins/intel_cpu/thirdparty/ComputeLibrary \
+            src/bindings/python/thirdparty/pybind11 \
+            thirdparty/pugixml \
+            thirdparty/json/nlohmann_json \
+            thirdparty/gtest/gtest \
+            thirdparty/gflags/gflags \
+            thirdparty/zlib/zlib
+          git -C openvino submodule status > artifacts/openvino-i32-candidate/submodules.txt
+      - name: Build exact tests-only red then production candidate green
+        run: python3 run_openvino_i32_candidate.py --source openvino --build openvino/build --python .venv/bin/python --artifacts artifacts/openvino-i32-candidate
+      - name: Upload source-bound red-green receipts and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: openvino-i32-candidate-arm64-${{ github.run_id }}
+          path: artifacts/openvino-i32-candidate/
+          if-no-files-found: error
+          retention-days: 14

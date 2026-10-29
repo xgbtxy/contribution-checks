@@ -1,0 +1,286 @@
+diff --git a/src/plugins/intel_cpu/tests/functional/custom/subgraph_tests/src/arm/eltwise_i32_precision.cpp b/src/plugins/intel_cpu/tests/functional/custom/subgraph_tests/src/arm/eltwise_i32_precision.cpp
+new file mode 100644
+index 00000000..49b78a98
+--- /dev/null
++++ b/src/plugins/intel_cpu/tests/functional/custom/subgraph_tests/src/arm/eltwise_i32_precision.cpp
+@@ -0,0 +1,268 @@
++// Copyright (C) 2018-2026 Intel Corporation
++// SPDX-License-Identifier: Apache-2.0
++//
++
++#include <gtest/gtest.h>
++
++#include <algorithm>
++#include <cstdint>
++#include <limits>
++#include <memory>
++#include <string>
++#include <vector>
++
++#include "openvino/core/model.hpp"
++#include "openvino/op/abs.hpp"
++#include "openvino/op/add.hpp"
++#include "openvino/op/constant.hpp"
++#include "openvino/op/divide.hpp"
++#include "openvino/op/maximum.hpp"
++#include "openvino/op/minimum.hpp"
++#include "openvino/op/multiply.hpp"
++#include "openvino/op/parameter.hpp"
++#include "openvino/op/result.hpp"
++#include "openvino/op/squared_difference.hpp"
++#include "openvino/op/subtract.hpp"
++#include "openvino/runtime/core.hpp"
++#include "openvino/runtime/exec_model_info.hpp"
++#include "openvino/runtime/tensor.hpp"
++
++namespace {
++
++using Values = std::vector<int32_t>;
++using Parameters = ov::ParameterVector;
++using Output = ov::Output<ov::Node>;
++
++const ov::Shape shape{2, 5};
++
++Values infer_int32(ov::Core& core,
++                   const Output& output,
++                   const Parameters& parameters,
++                   const std::vector<Values>& input_values) {
++    const auto result = std::make_shared<ov::op::v0::Result>(output);
++    const auto model = std::make_shared<ov::Model>(ov::ResultVector{result}, parameters);
++    auto compiled = core.compile_model(model, "CPU");
++    auto request = compiled.create_infer_request();
++
++    EXPECT_EQ(parameters.size(), input_values.size());
++    if (parameters.size() != input_values.size()) {
++        return {};
++    }
++
++    const auto expected_shape = model->output(0).get_shape();
++    for (size_t index = 0; index < input_values.size(); ++index) {
++        const auto input_shape = parameters[index]->get_output_shape(0);
++        EXPECT_EQ(ov::shape_size(input_shape), input_values[index].size());
++        if (ov::shape_size(input_shape) != input_values[index].size()) {
++            return {};
++        }
++        ov::Tensor tensor(ov::element::i32, input_shape);
++        std::copy(input_values[index].begin(), input_values[index].end(), tensor.data<int32_t>());
++        request.set_input_tensor(index, tensor);
++    }
++
++    request.infer();
++    const auto output_tensor = request.get_output_tensor();
++    EXPECT_EQ(output_tensor.get_element_type(), ov::element::i32);
++    EXPECT_EQ(output_tensor.get_shape(), expected_shape);
++    const auto* data = output_tensor.data<const int32_t>();
++    return Values(data, data + ov::shape_size(shape));
++}
++
++void expect_int32_values(const Values& actual, const Values& expected) {
++    ASSERT_EQ(actual.size(), expected.size());
++    for (size_t index = 0; index < expected.size(); ++index) {
++        EXPECT_EQ(actual[index], expected[index]) << "at flattened index " << index;
++    }
++}
++
++std::shared_ptr<ov::op::v0::Parameter> make_parameter(const std::string& name, const ov::Shape& input_shape = shape) {
++    auto parameter = std::make_shared<ov::op::v0::Parameter>(ov::element::i32, input_shape);
++    parameter->set_friendly_name(name);
++    return parameter;
++}
++
++TEST(AArch64EltwiseI32Precision, PreservesExactArithmeticAndSupportedFusion) {
++    ov::Core core;
++
++    const Values values{16777217, 16777216, -16777217, -16777216, 16777215, -16777215, 7, -7, 2147483646, -2147483647};
++    const auto input = make_parameter("input");
++
++    auto bias = make_parameter("bias");
++    const Values addend{16777216, 16777216, -16777216, -16777216, 1, -1, 4, -4, 1, -1};
++    const Values sum{33554433,
++                     33554432,
++                     -33554433,
++                     -33554432,
++                     16777216,
++                     -16777216,
++                     11,
++                     -11,
++                     2147483647,
++                     std::numeric_limits<int32_t>::min()};
++    expect_int32_values(
++        infer_int32(core, std::make_shared<ov::op::v1::Add>(input, bias)->output(0), {input, bias}, {values, addend}),
++        sum);
++
++    const auto broadcast_input = make_parameter("broadcast_input");
++    const auto broadcast_bias = make_parameter("broadcast_bias", {1, shape[1]});
++    const Values
++        broadcast_values{16777217, 16777216, -16777217, -16777216, 7, 16777217, 16777216, -16777217, -16777216, 7};
++    const Values broadcast_addend{16777216, 16777216, -16777216, -16777216, 1};
++    const Values
++        broadcast_sum{33554433, 33554432, -33554433, -33554432, 8, 33554433, 33554432, -33554433, -33554432, 8};
++    expect_int32_values(infer_int32(core,
++                                    std::make_shared<ov::op::v1::Add>(broadcast_input, broadcast_bias)->output(0),
++                                    {broadcast_input, broadcast_bias},
++                                    {broadcast_values, broadcast_addend}),
++                        broadcast_sum);
++
++    const Values subtractor{16777216, 16777215, -16777216, -16777215, -1, 1, 4, -4, -1, 1};
++    const Values difference{1, 1, -1, -1, 16777216, -16777216, 3, -3, 2147483647, std::numeric_limits<int32_t>::min()};
++    auto subtrahend = make_parameter("subtrahend");
++    expect_int32_values(infer_int32(core,
++                                    std::make_shared<ov::op::v1::Subtract>(input, subtrahend)->output(0),
++                                    {input, subtrahend},
++                                    {values, subtractor}),
++                        difference);
++
++    const Values factors{1, 1, 1, 1, -1, -1, 3, -3, 1, 1};
++    const Values
++        products{16777217, 16777216, -16777217, -16777216, -16777215, 16777215, 21, 21, 2147483646, -2147483647};
++    auto factor = make_parameter("factor");
++    expect_int32_values(infer_int32(core,
++                                    std::make_shared<ov::op::v1::Multiply>(input, factor)->output(0),
++                                    {input, factor},
++                                    {values, factors}),
++                        products);
++
++    const Values
++        neighbors{16777216, 16777217, -16777216, -16777217, 16777216, -16777216, 8, -8, 2147483645, -2147483646};
++    const Values minima{16777216, 16777216, -16777217, -16777217, 16777215, -16777216, 7, -8, 2147483645, -2147483647};
++    const Values maxima{16777217, 16777217, -16777216, -16777216, 16777216, -16777215, 8, -7, 2147483646, -2147483646};
++    auto other = make_parameter("other");
++    expect_int32_values(infer_int32(core,
++                                    std::make_shared<ov::op::v1::Minimum>(input, other)->output(0),
++                                    {input, other},
++                                    {values, neighbors}),
++                        minima);
++    expect_int32_values(infer_int32(core,
++                                    std::make_shared<ov::op::v1::Maximum>(input, other)->output(0),
++                                    {input, other},
++                                    {values, neighbors}),
++                        maxima);
++
++    const Values nearby{16777216, 16777217, -16777216, -16777217, 16777216, -16777216, 9, -9, 2147483645, -2147483646};
++    const Values squared{1, 1, 1, 1, 1, 1, 4, 4, 1, 1};
++    auto neighbor = make_parameter("neighbor");
++    expect_int32_values(infer_int32(core,
++                                    std::make_shared<ov::op::v0::SquaredDifference>(input, neighbor)->output(0),
++                                    {input, neighbor},
++                                    {values, nearby}),
++                        squared);
++
++    const Values absolute{16777217, 16777216, 16777217, 16777216, 16777215, 16777215, 7, 7, 2147483646, 2147483647};
++    expect_int32_values(infer_int32(core, std::make_shared<ov::op::v0::Abs>(input)->output(0), {input}, {values}),
++                        absolute);
++
++    const Values ones(ov::shape_size(shape), 1);
++    // Keep the runtime-parameter case separate: this covers a chain of integer
++    // emitters without relying on the MultiplyAndAdd graph rewrite.
++    auto runtime_multiplier = make_parameter("runtime_multiplier");
++    auto runtime_addend = make_parameter("runtime_addend");
++    const auto runtime_multiply = std::make_shared<ov::op::v1::Multiply>(input, runtime_multiplier);
++    const auto runtime_multiply_add = std::make_shared<ov::op::v1::Add>(runtime_multiply, runtime_addend);
++    const Values runtime_multiply_add_result{16777218,
++                                             16777217,
++                                             -16777216,
++                                             -16777215,
++                                             16777216,
++                                             -16777214,
++                                             8,
++                                             -6,
++                                             2147483647,
++                                             -2147483646};
++    expect_int32_values(infer_int32(core,
++                                    runtime_multiply_add->output(0),
++                                    {input, runtime_multiplier, runtime_addend},
++                                    {values, ones, ones}),
++                        runtime_multiply_add_result);
++
++    // Constant 2-D scale and bias on one channel axis trigger
++    // GraphOptimizer::FuseMultiplyAndAdd and its three-input i32 MulAdd emitter.
++    const auto multiplier =
++        ov::op::v0::Constant::create(ov::element::i32, {1, shape[1]}, std::vector<int32_t>{2, 1, -1, 1, 1});
++    const auto fused_bias =
++        ov::op::v0::Constant::create(ov::element::i32, {1, shape[1]}, std::vector<int32_t>{1, -1, 1, -1, 1});
++    auto multiply = std::make_shared<ov::op::v1::Multiply>(input, multiplier);
++    multiply->set_friendly_name("multiply");
++    auto multiply_add = std::make_shared<ov::op::v1::Add>(multiply, fused_bias);
++    multiply_add->set_friendly_name("add");
++    const Values multiply_add_result{33554435,
++                                     16777215,
++                                     16777218,
++                                     -16777217,
++                                     16777216,
++                                     -33554429,
++                                     6,
++                                     8,
++                                     2147483645,
++                                     -2147483646};
++    const auto fused_model =
++        std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(multiply_add)},
++                                    ov::ParameterVector{input});
++    auto fused_compiled = core.compile_model(fused_model, "CPU");
++    auto fused_request = fused_compiled.create_infer_request();
++    ov::Tensor fused_input(ov::element::i32, shape);
++    std::copy(values.begin(), values.end(), fused_input.data<int32_t>());
++    fused_request.set_input_tensor(0, fused_input);
++    fused_request.infer();
++    const auto fused_output = fused_request.get_output_tensor();
++    const auto* fused_data = fused_output.data<const int32_t>();
++    expect_int32_values(Values(fused_data, fused_data + ov::shape_size(shape)), multiply_add_result);
++
++    bool fused_with_i32_precision = false;
++    const auto runtime_model = fused_compiled.get_runtime_model();
++    for (const auto& node : runtime_model->get_ordered_ops()) {
++        const auto& info = node->get_rt_info();
++        const auto type = info.find(ov::exec_model_info::LAYER_TYPE);
++        const auto names = info.find(ov::exec_model_info::ORIGINAL_NAMES);
++        if (type == info.end() || names == info.end() || type->second.as<std::string>() != "Eltwise") {
++            continue;
++        }
++        const auto originals = names->second.as<std::string>();
++        if (originals.find("multiply") != std::string::npos && originals.find("add") != std::string::npos) {
++            EXPECT_EQ(info.at(ov::exec_model_info::RUNTIME_PRECISION).as<ov::element::Type>(), ov::element::i32);
++            fused_with_i32_precision = true;
++        }
++    }
++    EXPECT_TRUE(fused_with_i32_precision) << "Multiply and Add should execute in one i32 Eltwise node";
++
++    // Integer Divide uses a separate reference path. Its placement after Add must
++    // preserve the exact large sum while keeping division out of an i32 JIT fusion.
++    auto divisor = make_parameter("divisor");
++    auto pre_division_add = std::make_shared<ov::op::v1::Add>(input, bias);
++    pre_division_add->set_friendly_name("pre_division_add");
++    auto divide = std::make_shared<ov::op::v1::Divide>(pre_division_add, divisor, false);
++    divide->set_friendly_name("divide");
++    const auto divide_model =
++        std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(divide)},
++                                    ov::ParameterVector{input, bias, divisor});
++    auto divide_compiled = core.compile_model(divide_model, "CPU");
++    auto divide_request = divide_compiled.create_infer_request();
++    ov::Tensor divide_input(ov::element::i32, shape);
++    ov::Tensor divide_bias(ov::element::i32, shape);
++    ov::Tensor divide_by_one(ov::element::i32, shape);
++    std::copy(values.begin(), values.end(), divide_input.data<int32_t>());
++    std::copy(addend.begin(), addend.end(), divide_bias.data<int32_t>());
++    std::fill_n(divide_by_one.data<int32_t>(), ov::shape_size(shape), 1);
++    divide_request.set_input_tensor(0, divide_input);
++    divide_request.set_input_tensor(1, divide_bias);
++    divide_request.set_input_tensor(2, divide_by_one);
++    divide_request.infer();
++    const auto divide_output = divide_request.get_output_tensor();
++    const auto* divide_data = divide_output.data<const int32_t>();
++    expect_int32_values(Values(divide_data, divide_data + ov::shape_size(shape)), sum);
++}
++
++}  // namespace
+diff --git a/src/plugins/intel_cpu/tests/functional/sources.cmake b/src/plugins/intel_cpu/tests/functional/sources.cmake
+index ed25ce98..e90194a0 100644
+--- a/src/plugins/intel_cpu/tests/functional/sources.cmake
++++ b/src/plugins/intel_cpu/tests/functional/sources.cmake
+@@ -740,6 +740,7 @@ set(TMP_LIST_OF_ARM_SUBGRAPH_TESTS
+     ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/convert_reduce_multi_axis.cpp
+     ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/deconv_multiple_output_edges.cpp
+     ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/eltwise_chain.cpp
++    ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/eltwise_i32_precision.cpp
+     ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/fc_fq.cpp
+     ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/fuse_eltwise_convert.cpp
+     ${CMAKE_CURRENT_LIST_DIR}/custom/subgraph_tests/src/arm/gathermatmul.cpp
