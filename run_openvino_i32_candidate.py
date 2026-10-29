@@ -225,7 +225,7 @@ def main() -> int:
         "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
         "-DENABLE_PLUGINS_XML=ON", "-DENABLE_INTEL_CPU=ON",
         "-DENABLE_INTEL_GPU=OFF", "-DENABLE_INTEL_NPU=OFF",
-        "-DENABLE_MLAS_FOR_CPU=OFF", "-DENABLE_KLEIDIAI_FOR_CPU=OFF",
+        "-DENABLE_MLAS_FOR_CPU=ON", "-DENABLE_KLEIDIAI_FOR_CPU=ON",
         "-DTHREADING=SEQ", "-DENABLE_SYSTEM_TBB=ON",
         "-DARM_COMPUTE_SCONS_JOBS=2", "-DENABLE_ARM_COMPUTE_CMAKE=OFF",
         "-DENABLE_PYTHON=ON", f"-DPython3_EXECUTABLE={args.python.resolve()}",
@@ -393,8 +393,8 @@ def main() -> int:
         state["optional_python_probes"] = {"status": "python-api-build-failed-supplementary", "build_exit_code": python_target.returncode}
         record(receipt, state)
         return 0
-    plugin_matches = list((source / "bin" / "arm64").rglob("plugins.xml"))
-    package_matches = list((source / "bin" / "arm64").rglob("python/openvino/__init__.py"))
+    plugin_matches = list((source / "bin").rglob("plugins.xml"))
+    package_matches = list((source / "bin").rglob("python/openvino/__init__.py"))
     if not plugin_matches or not package_matches:
         state["optional_python_probes"] = {"status": "python-runtime-artifacts-not-found-supplementary"}
         record(receipt, state)

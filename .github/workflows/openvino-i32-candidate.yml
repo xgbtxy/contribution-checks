@@ -52,6 +52,8 @@ jobs:
           git -C openvino submodule update --init --depth 1 -- \
             src/plugins/intel_cpu/thirdparty/onednn \
             src/plugins/intel_cpu/thirdparty/ComputeLibrary \
+            src/plugins/intel_cpu/thirdparty/mlas \
+            src/plugins/intel_cpu/thirdparty/kleidiai \
             src/bindings/python/thirdparty/pybind11 \
             thirdparty/pugixml \
             thirdparty/json/nlohmann_json \
@@ -71,7 +73,7 @@ jobs:
         if: always()
         run: ccache --show-stats > artifacts/openvino-i32-candidate/compiler-cache.txt
       - name: Preserve valid compiler results for later verification
-        if: always() && !cancelled()
+        if: always()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ env.CCACHE_DIR }}

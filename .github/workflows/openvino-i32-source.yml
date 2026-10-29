@@ -1,12 +1,6 @@
 name: OpenVINO i32 precision against current ARM64 source
 
 on:
-  push:
-    branches: [validation/openvino-i32-39337]
-    paths:
-      - .github/workflows/openvino-i32-source.yml
-      - run_openvino_source_baseline.py
-      - run_openvino_i32_matrix.py
   workflow_dispatch:
 
 permissions:
@@ -40,12 +34,16 @@ jobs:
           git -C openvino submodule update --init --depth 1 -- \
             src/plugins/intel_cpu/thirdparty/onednn \
             src/plugins/intel_cpu/thirdparty/ComputeLibrary \
+            src/plugins/intel_cpu/thirdparty/mlas \
+            src/plugins/intel_cpu/thirdparty/kleidiai \
             src/bindings/python/thirdparty/pybind11 \
             thirdparty/pugixml \
             thirdparty/json/nlohmann_json
           git -C openvino submodule status -- \
             src/plugins/intel_cpu/thirdparty/onednn \
             src/plugins/intel_cpu/thirdparty/ComputeLibrary \
+            src/plugins/intel_cpu/thirdparty/mlas \
+            src/plugins/intel_cpu/thirdparty/kleidiai \
             src/bindings/python/thirdparty/pybind11 \
             thirdparty/pugixml \
             thirdparty/json/nlohmann_json > artifacts/openvino-source/submodules.txt
@@ -62,8 +60,8 @@ jobs:
             -DENABLE_INTEL_CPU=ON \
             -DENABLE_INTEL_GPU=OFF \
             -DENABLE_INTEL_NPU=OFF \
-            -DENABLE_MLAS_FOR_CPU=OFF \
-            -DENABLE_KLEIDIAI_FOR_CPU=OFF \
+            -DENABLE_MLAS_FOR_CPU=ON \
+            -DENABLE_KLEIDIAI_FOR_CPU=ON \
             -DTHREADING=SEQ \
             -DENABLE_SYSTEM_TBB=ON \
             -DARM_COMPUTE_SCONS_JOBS=2 \
@@ -102,8 +100,8 @@ jobs:
       - name: Compare current-source ARM64 results with exact integer expectations
         run: |
           set -o pipefail
-          plugin_config="$(find openvino/bin/arm64 -name plugins.xml -print -quit)"
-          python_package="$(find openvino/bin/arm64 -path '*/python/openvino/__init__.py' -print -quit | sed 's|/openvino/__init__\.py$||')"
+          plugin_config="$(find openvino/bin -name plugins.xml -print -quit)"
+          python_package="$(find openvino/bin -path '*/python/openvino/__init__.py' -print -quit | sed 's|/openvino/__init__\.py$||')"
           test -n "$plugin_config"
           test -n "$python_package"
           export OPENVINO_PLUGIN_CONFIG="$plugin_config"
