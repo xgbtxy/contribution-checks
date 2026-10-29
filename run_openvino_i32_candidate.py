@@ -222,6 +222,7 @@ def main() -> int:
     configure = [
         "cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=ON",
+        "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
         "-DENABLE_PLUGINS_XML=ON", "-DENABLE_INTEL_CPU=ON",
         "-DENABLE_INTEL_GPU=OFF", "-DENABLE_INTEL_NPU=OFF",
         "-DENABLE_MLAS_FOR_CPU=OFF", "-DENABLE_KLEIDIAI_FOR_CPU=OFF",
@@ -348,6 +349,37 @@ def main() -> int:
         path: sha256(source / path) for path in manifest["files"]
     }
     record(receipt, state)
+
+    existing_targets = [
+        ("ov_cpu_func_subgraph_arm_fuse_eltwise_convert", "*", "fusion-convert"),
+        ("ov_cpu_func_slt_eltwise", "*smoke_CompareWithRefs_4D_int_jit*", "mixed-precision-eltwise"),
+    ]
+    existing_build = run(
+        ["cmake", "--build", str(build), "--target", *(item[0] for item in existing_targets), "--parallel", "2"],
+        ROOT, artifacts / "existing-regressions-build.log", timeout=25 * 60,
+    )
+    if existing_build.returncode:
+        state["existing_regressions"] = {"status": "build-failed", "exit_code": existing_build.returncode}
+        record(receipt, state)
+        raise RuntimeError("Existing ARM regression targets did not build")
+    state["existing_regressions"] = []
+    for existing_target, test_filter, label in existing_targets:
+        gtest_xml = artifacts / f"{label}.gtest.xml"
+        ctest_xml = artifacts / f"{label}.ctest.xml"
+        existing_run = run(
+            ["ctest", "--test-dir", str(build), "--output-on-failure", "--output-junit", str(ctest_xml),
+             "-R", f"^{re.escape(existing_target)}$"],
+            ROOT, artifacts / f"{label}.log", timeout=15 * 60,
+            env={**os.environ, "GTEST_COLOR": "no", "GTEST_FILTER": test_filter, "GTEST_OUTPUT": f"xml:{gtest_xml}"},
+        )
+        counts = junit_counts(gtest_xml)
+        entry = {"target": existing_target, "filter": test_filter, "exit_code": existing_run.returncode, "gtest_counts": counts}
+        state["existing_regressions"].append(entry)
+        record(receipt, state)
+        if (existing_run.returncode or counts["failures"] or counts["errors"]
+                or counts["tests"] <= counts["skipped"]):
+            raise RuntimeError(f"Existing ARM regression failed or ran no non-skipped tests: {existing_target}")
+    expected_hashes(source, manifest, {"tests", "production"})
 
     # The precise C++ functional test is the gating validation. The matrix probes
     # are supplementary and report outstanding operations operation by operation.

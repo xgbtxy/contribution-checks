@@ -18,6 +18,10 @@ jobs:
   source-build-red-green:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-openvino
+      CCACHE_BASEDIR: ${{ github.workspace }}/openvino
+      CCACHE_MAXSIZE: 3G
     steps:
       - name: Checkout validation harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -34,7 +38,7 @@ jobs:
       - name: Install CPU build and Python probe prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y scons ninja-build libtbb-dev python3.12-dev python3.12-venv
+          sudo apt-get install -y ccache scons ninja-build libtbb-dev python3.12-dev python3.12-venv
           python3.12 -m venv .venv
           .venv/bin/python -m pip install --disable-pip-version-check \
             numpy==2.3.4 openvino-telemetry==2025.2.0 setuptools wheel build packaging
@@ -55,8 +59,23 @@ jobs:
             thirdparty/gflags/gflags \
             thirdparty/zlib/zlib
           git -C openvino submodule status > artifacts/openvino-i32-candidate/submodules.txt
+      - name: Reuse compiler results for the same pinned ARM source
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: openvino-i32-arm64-7b74de45-tests-v1-${{ github.run_id }}
+          restore-keys: openvino-i32-arm64-7b74de45-tests-v1-
       - name: Build exact tests-only red then production candidate green
         run: python3 run_openvino_i32_candidate.py --source openvino --build openvino/build --python .venv/bin/python --artifacts artifacts/openvino-i32-candidate
+      - name: Record compiler cache statistics
+        if: always()
+        run: ccache --show-stats > artifacts/openvino-i32-candidate/compiler-cache.txt
+      - name: Preserve valid compiler results for later verification
+        if: always() && !cancelled()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: openvino-i32-arm64-7b74de45-tests-v1-${{ github.run_id }}
       - name: Upload source-bound red-green receipts and logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
