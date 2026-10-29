@@ -1,0 +1,52 @@
+name: OpenVINO i32 baseline on native CPU architectures
+
+on:
+  push:
+    branches: [validation/openvino-i32-39337]
+    paths:
+      - .github/workflows/openvino-i32-baseline.yml
+      - run_openvino_i32_baseline.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheel-baseline:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x64
+            extra_args: ''
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+            extra_args: --expect-known-failure
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Install the pinned official release wheel
+        run: |
+          python -m pip install --only-binary=:all: openvino==2026.4.1 numpy==2.3.4
+          mkdir -p artifacts
+          python -m pip freeze > artifacts/packages.txt
+          uname -a > artifacts/host.txt
+          lscpu >> artifacts/host.txt
+          git rev-parse HEAD > artifacts/harness-sha.txt
+      - name: Compare integer arithmetic and comparisons with exact NumPy results
+        run: python run_openvino_i32_baseline.py ${{ matrix.extra_args }} | tee artifacts/baseline.log
+      - name: Upload baseline receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: openvino-i32-baseline-${{ matrix.architecture }}-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
