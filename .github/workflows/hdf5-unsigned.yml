@@ -16,6 +16,8 @@ on:
           - full-normal
           - full-status-checked
           - coerce
+          - failure-controls-normal
+          - failure-controls-status-checked
 
 permissions:
   contents: read
@@ -23,7 +25,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ startsWith(inputs.phase, 'full-') && 360 || 90 }}
+    timeout-minutes: ${{ (startsWith(inputs.phase, 'full-') || startsWith(inputs.phase, 'failure-controls-')) && 360 || 90 }}
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache-rocksdb
       CCACHE_BASEDIR: ${{ github.workspace }}/rocksdb
@@ -53,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           packages=(libsnappy-dev ccache)
-          if [[ "${{ inputs.phase }}" == full-* ]]; then
+          if [[ "${{ inputs.phase }}" == full-* || "${{ inputs.phase }}" == failure-controls-* ]]; then
             packages+=(libgflags-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev ruby)
           fi
           sudo apt-get update -qq > artifacts/logs/dependency-install.log 2>&1
@@ -83,7 +85,9 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: rocksdb-87d4427-${{ inputs.phase }}-gcc13-portable-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: rocksdb-87d4427-${{ inputs.phase }}-gcc13-portable-v1-
+          restore-keys: |
+            rocksdb-87d4427-${{ inputs.phase }}-gcc13-portable-v1-
+            ${{ inputs.phase == 'failure-controls-normal' && 'rocksdb-87d4427-full-normal-gcc13-portable-v1-' || inputs.phase == 'failure-controls-status-checked' && 'rocksdb-87d4427-full-status-checked-gcc13-portable-v1-' || '' }}
 
       - name: Run the attributed baseline and optional candidate checks
         env:
@@ -102,6 +106,10 @@ jobs:
           fi
           if [[ "$phase" == "coerce" ]]; then
             python3 run_rocksdb_prefix_coerce.py --source rocksdb --artifacts artifacts --candidate-patch patches/rocksdb-prefix-15439/CANDIDATE.patch --candidate-manifest patches/rocksdb-prefix-15439/candidate-manifest.json
+            exit 0
+          fi
+          if [[ "$phase" == failure-controls-* ]]; then
+            python3 run_rocksdb_failure_controls.py --source rocksdb --artifacts artifacts --mode "${phase#failure-controls-}" --candidate-patch patches/rocksdb-prefix-15439/CANDIDATE.patch --candidate-manifest patches/rocksdb-prefix-15439/candidate-manifest.json
             exit 0
           fi
           args=(--phase "$phase")
@@ -137,5 +145,6 @@ jobs:
             artifacts/
             !artifacts/bin/**
             !artifacts/bin-temp/**
+            !artifacts/test-tmp/**
           if-no-files-found: error
           retention-days: 7

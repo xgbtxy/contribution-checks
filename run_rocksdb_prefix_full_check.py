@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import signal
 import subprocess
 import tarfile
@@ -25,6 +26,9 @@ import run_rocksdb_prefix as shared
 SOURCE_PIN = "87d442749a6a9f0fe5b9f07de7346466f8dd5acf"
 CANDIDATE_SHA256 = "cac9fade4b4bbb5c11fc0884e7febdd512734fe8c0a82d4678ab0a360b07cbd5"
 EXPECTED_PATHS = set(shared.EXPECTED_CANDIDATE_PATHS)
+EXPECTED_TRACKED_PATHS = EXPECTED_PATHS - {
+    "unreleased_history/bug_fixes/reverse_bytewise_common_prefix.md"
+}
 STATUS_CHECK_EXCLUSIONS = {
     "test_binaries": ["c_test", "env_test", "range_locking_test", "testutil_test"],
     "auxiliary_targets": ["ldb_tests", "db_crashtest_tests", "rocksdb_dump_test"],
@@ -156,11 +160,20 @@ def verify_candidate(source: Path, patch: Path, manifest_path: Path) -> dict:
     }
 
 
-def verify_frozen_blobs(source: Path, manifest: dict) -> dict[str, str]:
+def verify_frozen_blobs(
+    source: Path, manifest: dict, allow_build_outputs: bool = False
+) -> dict:
     if git(source, "rev-parse", "HEAD") != SOURCE_PIN:
         raise RuntimeError("source HEAD changed during validation")
+    statuses = source_status(source)
+    tracked_paths = {path for path, status in statuses.items() if status != "??"}
+    if tracked_paths != EXPECTED_TRACKED_PATHS:
+        raise RuntimeError(f"tracked source paths changed: {sorted(tracked_paths)}")
+    extras = sorted(set(statuses) - EXPECTED_PATHS)
+    if extras and not allow_build_outputs:
+        raise RuntimeError(f"unexpected source paths after check/precheck: {extras}")
     hashes = shared.verify_candidate_blobs(source, manifest, EXPECTED_PATHS)
-    return hashes
+    return {"head": SOURCE_PIN, "status_paths": statuses, "candidate_blobs": hashes}
 
 
 def run_precheck(source: Path, artifacts: Path, env: dict[str, str], label: str,
@@ -199,7 +212,7 @@ def run_precheck(source: Path, artifacts: Path, env: dict[str, str], label: str,
     }
     record_path = logs / f"{label}.json"
     try:
-        result_record["candidate_blobs_after"] = verify_frozen_blobs(source, manifest)
+        result_record["source_after"] = verify_frozen_blobs(source, manifest)
     except Exception as error:
         result_record["frozen_blob_verification_error"] = str(error)
     write_json(record_path, result_record)
@@ -314,6 +327,136 @@ def assert_full_check_execution(source: Path, artifacts: Path, progress: dict, m
     }
 
 
+def generated_db_split_merge_info(source: Path, artifact_dir: Path, mode: str, run: dict) -> dict:
+    """Inventory the one generated tool by its Make rule and run output; never assume ELF."""
+    path = source / "db_split_merge"
+    info = {"path": "db_split_merge", "status": source_status(source).get("db_split_merge")}
+    if not path.exists() and not path.is_symlink():
+        return {**info, "observed": False}
+
+    file_stat = path.lstat()
+    info.update({
+        "observed": True,
+        "filesystem_type": (
+            "regular" if stat.S_ISREG(file_stat.st_mode)
+            else "symlink" if stat.S_ISLNK(file_stat.st_mode)
+            else "directory" if stat.S_ISDIR(file_stat.st_mode)
+            else "other"
+        ),
+        "mode_octal": oct(stat.S_IMODE(file_stat.st_mode)),
+        "executable": os.access(path, os.X_OK),
+        "mtime_epoch": file_stat.st_mtime,
+        "size_bytes": file_stat.st_size if stat.S_ISREG(file_stat.st_mode) else None,
+    })
+    if stat.S_ISREG(file_stat.st_mode):
+        with path.open("rb") as stream:
+            info["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+            stream.seek(0)
+            info["first_16_bytes_hex"] = stream.read(16).hex()
+    else:
+        info["sha256"] = None
+
+    try:
+        file_probe = subprocess.run(
+            ["file", "-b", "--", str(path)],
+            cwd=source,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=False,
+        )
+        info["file_utility"] = {
+            "exit_code": file_probe.returncode,
+            "classification": file_probe.stdout.strip(),
+            "stderr": file_probe.stderr[-1000:],
+        }
+    except (OSError, subprocess.TimeoutExpired) as error:
+        info["file_utility"] = {"error": f"{type(error).__name__}: {error}"}
+
+    makefile = (source / "Makefile").read_text(encoding="utf-8")
+    lines = makefile.splitlines()
+    target_index = next((i for i, line in enumerate(lines) if line.startswith("db_split_merge:")), None)
+    if target_index is None:
+        info["make_rule"] = None
+    else:
+        rule_lines = [lines[target_index]]
+        for line in lines[target_index + 1:]:
+            if line.startswith("\t"):
+                rule_lines.append(line)
+            else:
+                break
+        info["make_rule"] = "\n".join(rule_lines)
+    info["source_file"] = "tools/db_split_merge.cc"
+    info["source_file_git_blob"] = git(source, "rev-parse", "HEAD:tools/db_split_merge.cc")
+    src_mk = (source / "src.mk").read_text(encoding="utf-8", errors="replace")
+    info["source_registered_in_src_mk"] = "tools/db_split_merge.cc" in src_mk
+
+    log_record = run.get("stdout", {})
+    log_path = Path(log_record.get("gzip_path", ""))
+    matching_lines = []
+    if log_path.is_file():
+        with gzip.open(log_path, "rt", encoding="utf-8", errors="replace") as stream:
+            matching_lines = [line.strip() for line in stream if "db_split_merge" in line]
+    info["make_log_lines"] = matching_lines[:40]
+    info["make_link_marker_observed"] = any(
+        "CCLD" in line and re.search(r"\bdb_split_merge\b", line)
+        for line in matching_lines
+    )
+    try:
+        start_epoch = dt.datetime.fromisoformat(run["started_utc"]).timestamp()
+    except Exception:
+        start_epoch = None
+    info["mtime_after_full_check_started"] = (
+        start_epoch is not None and file_stat.st_mtime >= start_epoch
+    )
+    dependencies = ("$(OBJ_DIR)/tools/db_split_merge.o", "$(LIBRARY)")
+    info["generated_make_target_verified"] = (
+        info["filesystem_type"] == "regular"
+        and info["executable"]
+        and info["size_bytes"] > 0
+        and info["make_rule"] is not None
+        and all(dep in info["make_rule"].splitlines()[0] for dep in dependencies)
+        and "$(AM_LINK)" in info["make_rule"]
+        and info["source_registered_in_src_mk"]
+        and info["make_link_marker_observed"]
+        and info["mtime_after_full_check_started"]
+    )
+    return info
+
+
+def audit_source_after_check(source: Path, artifact_dir: Path, mode: str, run: dict) -> dict:
+    statuses = source_status(source)
+    tracked = sorted(path for path, status in statuses.items() if status != "??")
+    candidate_tracked = sorted(EXPECTED_TRACKED_PATHS)
+    untracked = sorted(path for path, status in statuses.items() if status == "??")
+    unexpected_tracked = sorted(set(tracked) - EXPECTED_TRACKED_PATHS)
+    unexpected_untracked = sorted(set(untracked) - {
+        "unreleased_history/bug_fixes/reverse_bytewise_common_prefix.md",
+        "db_split_merge",
+    })
+    generated = None
+    errors = []
+    if tracked != candidate_tracked:
+        errors.append(f"tracked path set differs from the frozen candidate: {tracked}")
+    if unexpected_tracked:
+        errors.append(f"unexpected tracked source paths after make check: {unexpected_tracked}")
+    if unexpected_untracked:
+        errors.append(f"unexpected untracked paths after make check: {unexpected_untracked}")
+    if "db_split_merge" in untracked:
+        generated = generated_db_split_merge_info(source, artifact_dir, mode, run)
+        if not generated.get("generated_make_target_verified"):
+            errors.append("db_split_merge is untracked but its generated-target provenance was not verified")
+    return {
+        "status_paths": statuses,
+        "tracked_candidate_paths": tracked,
+        "untracked_paths": untracked,
+        "db_split_merge_generated_artifact": generated,
+        "errors": errors,
+    }
+
+
 def environment(source: Path, artifact_dir: Path, mode: str) -> tuple[dict[str, str], Path]:
     runner_temp = Path(os.environ.get("RUNNER_TEMP", str(artifact_dir / "runner-temp")))
     run_tmp = runner_temp / f"rocksdb-tests-{mode}"
@@ -410,7 +553,7 @@ def make_progress(source: Path, env: dict[str, str]) -> dict:
         return {"exit_code": None, "raw": f"progress probe failed: {error}", "json": None}
     text = (result.stdout + result.stderr).strip()
     try:
-        progress = json.loads(text)
+        progress = json.loads(result.stdout.strip())
     except (json.JSONDecodeError, TypeError):
         progress = None
     return {"exit_code": result.returncode, "raw": text[-4000:], "json": progress}
@@ -419,6 +562,7 @@ def make_progress(source: Path, env: dict[str, str]) -> dict:
 def run_mode(source: Path, artifact_dir: Path, mode: str, receipt: dict,
              manifest: dict) -> dict:
     env, run_tmp = environment(source, artifact_dir, mode)
+    env["SKIP_FORMAT_BUCK_CHECKS"] = "1"
     logs = artifact_dir / "logs" / mode
     logs.mkdir(parents=True, exist_ok=True)
     temp = logs / "make-check.stdout.raw"
@@ -435,6 +579,9 @@ def run_mode(source: Path, artifact_dir: Path, mode: str, receipt: dict,
             "AUTO_CLEAN", "DEBUG_LEVEL", "LIB_MODE", "NCORES", "TEST_TMPDIR"
         )},
         "assert_status_checked": mode == "status-checked",
+        "skip_format_buck_checks": env["SKIP_FORMAT_BUCK_CHECKS"],
+        "native_check_extras_preserved": ["check-all-python"]
+        + ([] if mode == "status-checked" else ["ldb_tests", "db_crashtest_tests", "rocksdb_dump_test"]),
         "per_gtest_case_timeout_seconds": CASE_TIMEOUT_SECONDS,
         "status_check_exclusions": STATUS_CHECK_EXCLUSIONS if mode == "status-checked" else None,
         "started_utc": start_utc,
@@ -476,6 +623,8 @@ def run_mode(source: Path, artifact_dir: Path, mode: str, receipt: dict,
                 break
             if now >= next_progress:
                 snapshot = {"captured_utc": utc(), **make_progress(source, env)}
+                if snapshot.get("json") is not None:
+                    print(json.dumps({"make_check_progress": snapshot["json"]}), flush=True)
                 with progress_path.open("a", encoding="utf-8") as stream:
                     stream.write(json.dumps(snapshot, sort_keys=True) + "\n")
                 receipt["runs"][mode]["last_progress"] = snapshot
@@ -485,6 +634,18 @@ def run_mode(source: Path, artifact_dir: Path, mode: str, receipt: dict,
         exit_code = process.returncode
     finally:
         raw_fd.close()
+
+    # Preserve the native Make result before any secondary evidence processing.
+    # A later archive, progress, log-schema, or source-audit failure must not
+    # erase or relabel a real make-check failure.
+    native_make_succeeded = exit_code == 0 and not timed_out
+    receipt["runs"][mode]["native_process_outcome"] = {
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "native_make_succeeded": native_make_succeeded,
+        "captured_utc": utc(),
+    }
+    write_json(artifact_dir / "receipt.json", receipt)
 
     final_progress = {"captured_utc": utc(), **make_progress(source, env)}
     with progress_path.open("a", encoding="utf-8") as stream:
@@ -497,19 +658,21 @@ def run_mode(source: Path, artifact_dir: Path, mode: str, receipt: dict,
     post_build_blobs = None
     if head_after == SOURCE_PIN:
         try:
-            post_build_blobs = verify_frozen_blobs(source, manifest)
+            post_build_blobs = verify_frozen_blobs(source, manifest, allow_build_outputs=True)
         except Exception as error:
             frozen_blob_error = str(error)
     else:
         frozen_blob_error = f"HEAD changed during full check: {head_after}"
     test_execution = None
+    execution_evidence_error = None
     command_result.update(
         {
             "finished_utc": utc(),
             "elapsed_seconds": round(elapsed, 2),
             "exit_code": exit_code,
             "timed_out": timed_out,
-            "success": exit_code == 0 and not timed_out,
+            "native_make_succeeded": native_make_succeeded,
+            "success": False,
             "final_progress": final_progress,
             "test_execution": test_execution,
             "head_after": head_after,
@@ -543,15 +706,23 @@ def run_mode(source: Path, artifact_dir: Path, mode: str, receipt: dict,
             "files": len(test_logs), "path": archive.name,
             "bytes": archive.stat().st_size, "sha256": sha256(archive),
         }
+    if native_make_succeeded and not frozen_blob_error:
+        try:
+            test_execution = assert_full_check_execution(
+                source, artifact_dir, final_progress.get("json"), mode
+            )
+        except Exception as error:
+            execution_evidence_error = f"{type(error).__name__}: {error}"
+    command_result["test_execution"] = test_execution
+    command_result["execution_evidence_error"] = execution_evidence_error
+    command_result["secondary_source_error"] = frozen_blob_error
+    command_result["success"] = (
+        native_make_succeeded
+        and test_execution is not None
+        and frozen_blob_error is None
+        and execution_evidence_error is None
+    )
     write_json(artifact_dir / "receipt.json", receipt)
-    if frozen_blob_error:
-        raise RuntimeError(f"source revision or frozen patch changed during full check: {frozen_blob_error}")
-    if command_result["success"]:
-        test_execution = assert_full_check_execution(
-            source, artifact_dir, final_progress.get("json"), mode
-        )
-        command_result["test_execution"] = test_execution
-        write_json(artifact_dir / "receipt.json", receipt)
     return command_result
 
 
@@ -606,24 +777,50 @@ def main() -> int:
             }
         receipt["mode"] = args.mode
         write_json(artifacts / "receipt.json", receipt)
-        env, _ = environment(source, artifacts, args.mode)
-        receipt.setdefault("prechecks", {})["format_auto"] = run_precheck(
-            source, artifacts, env, "format-auto", ["make", "format-auto"], manifest
-        )
-        receipt["prechecks"]["check_format"] = run_precheck(
-            source, artifacts, env, "check-format", ["make", "check-format"], manifest
-        )
-        receipt["prechecks"]["check_sources"] = run_precheck(
-            source, artifacts, env, "check-sources", ["make", "check-sources"], manifest
-        )
+        precheck_env, _ = environment(source, artifacts, "normal")
+        receipt["precheck_environment"] = {
+            "skip_format_buck_checks": precheck_env.get("SKIP_FORMAT_BUCK_CHECKS"),
+            "formatter_binary": precheck_env.get("CLANG_FORMAT_BINARY"),
+            "formatter_diff": precheck_env.get("CLANG_FORMAT_DIFF"),
+        }
+        precheck_targets = [
+            ("format_auto", ["make", "format-auto"]),
+            ("check_format", ["make", "VERBOSE_CHECK=1", "check-format"]),
+            ("check_buck_targets", ["make", "check-buck-targets"]),
+            ("check_sources", ["make", "check-sources"]),
+            ("check_workflow_yaml", ["make", "check-workflow-yaml"]),
+            (
+                "check_c_api_gen",
+                [
+                    "make",
+                    f"API_COMPAT_REF={SOURCE_PIN}",
+                    "CLANG_FORMAT_BINARY=clang-format",
+                    "check-c-api-gen",
+                ],
+            ),
+        ]
+        receipt["prechecks"] = {}
+        for label, command in precheck_targets:
+            receipt["prechecks"][label] = run_precheck(
+                source, artifacts, precheck_env, label, command, manifest
+            )
+            write_json(artifacts / "receipt.json", receipt)
         write_json(artifacts / "receipt.json", receipt)
         result = run_mode(source, artifacts, args.mode, receipt, manifest)
-        allowed = set(receipt["product_patch"]["patch_paths"])
-        after = source_status(source)
-        if set(after) - allowed:
-            raise RuntimeError(f"full check left unexpected source-tree changes: {sorted(set(after)-allowed)}")
-        receipt["source_after"] = {"status_paths": after, "head": git(source, "rev-parse", "HEAD")}
-        receipt["status"] = "passed" if result["success"] else "failed_or_timed_out"
+        try:
+            receipt["source_after"] = audit_source_after_check(
+                source, artifacts, args.mode, receipt["runs"][args.mode]
+            )
+        except Exception as audit_error:
+            receipt["source_after"] = {"errors": [f"{type(audit_error).__name__}: {audit_error}"]}
+        native_succeeded = result["native_make_succeeded"]
+        source_audit_failed = bool(receipt["source_after"].get("errors"))
+        if not native_succeeded:
+            receipt["status"] = "full_make_check_failed"
+        elif not result["success"] or source_audit_failed:
+            receipt["status"] = "validation_runner_failed_after_make_success"
+        else:
+            receipt["status"] = "passed"
     except Exception as error:
         receipt.setdefault("errors", []).append(f"{type(error).__name__}: {error}")
         receipt["status"] = "validation_runner_failed"

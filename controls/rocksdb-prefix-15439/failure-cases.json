@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "issue": "https://github.com/meta/rocksdb/issues/15439",
+  "source_pin": "87d442749a6a9f0fe5b9f07de7346466f8dd5acf",
+  "candidate_patch_sha256": "cac9fade4b4bbb5c11fc0884e7febdd512734fe8c0a82d4678ab0a360b07cbd5",
+  "normal_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41015193092",
+  "status_checked_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41015199917",
+  "normal_cases": [
+    {
+      "binary": "prefetch_test",
+      "gtest_filter": "PrefetchTest/PrefetchTest.Basic/0",
+      "repetitions": 3,
+      "reported_failure_markers": [
+        "compaction_readahead_size",
+        "270336"
+      ],
+      "context": "Full-run prefetch shard 8 of 13; this case is the first GTest case in that shard. Parameter 0 uses BytewiseComparator, format 7, support_prefetch=false and direct_io=false."
+    },
+    {
+      "binary": "compaction_service_test",
+      "gtest_filter": "CompactionServiceTest.ConcurrentCompaction",
+      "confidence": "full-run pass"
+    },
+    {
+      "binary": "compaction_service_test",
+      "gtest_filter": "CompactionServiceTest.IsRemoteCompactionInCompressorContext",
+      "confidence": "full-run pass"
+    }
+  ],
+  "status_checked_cases": [
+    {
+      "binary": "prefetch_test",
+      "gtest_filter": "PrefetchTest/PrefetchTest.Basic/0",
+      "repetitions": 1,
+      "reported_failure_markers": [
+        "compaction_readahead_size",
+        "270336"
+      ],
+      "confidence": "high"
+    },
+    {
+      "binary": "compaction_service_test",
+      "gtest_filter": "CompactionServiceTest.ConcurrentCompaction",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/compaction/compaction_service_test.cc:4556: Failure",
+        "Result incomplete: CompactionService failed to run the compaction job (and no valid result is returned).",
+        "db/compaction/compaction_service_test.cc:4556: Failure",
+        "Result incomplete: CompactionService failed to run the compaction job (and no valid result is returned).",
+        "db/compaction/compaction_service_test.cc:4563: Failure",
+        "Result incomplete: CompactionService failed to run the compaction job (and no valid result is returned)."
+      ]
+    },
+    {
+      "binary": "compaction_service_test",
+      "gtest_filter": "CompactionServiceTest.IsRemoteCompactionInCompressorContext",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/compaction/compaction_service_test.cc:636: Failure",
+        "Result incomplete: CompactionService failed to run the compaction job (and no valid result is returned).",
+        "db/compaction/compaction_service_test.cc:938: Failure",
+        "Result incomplete: CompactionService failed to run the compaction job (and no valid result is returned)."
+      ]
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "DBBasicTest.OptimizeManifestForRecoveryDisabledByBestEffortsRecovery",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_basic_test.cc:380: Failure"
+      ]
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "DBBasicTest.ReuseManifestOnOpenDisabledByBestEffortsRecovery",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_basic_test.cc:979: Failure"
+      ]
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "DBBasicTest.IncrementalRecoveryNoCorrupt",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_test_util.cc:635: Failure",
+        "Corruption: VersionBuilder: Cannot delete table file #59 from level 0 since it is not in the LSM tree  The file /home/runner/work/_temp/rocksdb-tests-status-checkedt/run-db_basic_test-shard-8/db_basic_test_636090_17084471920391231019/MANIFEST-000013 may be corrupted.",
+        "db/db_basic_test.cc:5796: Failure"
+      ]
+    },
+    {
+      "binary": "db_etc2_test",
+      "gtest_filter": "DBTest2.BestEffortsRecoveryWithSstUniqueIdVerification",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_etc2_test.cc:8681: Failure",
+        "db/db_etc2_test.cc:8681: Failure"
+      ]
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.KeepsImmutableMemtableWhenFlushedFileIsMissing",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_secondary_test.cc:2042: Failure"
+      ]
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.CatchUpKeepsUnflushedWalData",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_secondary_test.cc:171: Failure",
+        "NotFound:"
+      ]
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.OpenFilesAsyncPrimaryDropColumnFamily",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_secondary_test.cc:171: Failure",
+        "NotFound:"
+      ]
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.KeepsMemtableWhenFlushedFileIsMissing",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_secondary_test.cc:171: Failure",
+        "NotFound:"
+      ]
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.KeepsMemtableWhenAtomicFlushSiblingFileIsMissing",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/db_secondary_test.cc:1969: Failure"
+      ]
+    },
+    {
+      "binary": "version_set_test",
+      "gtest_filter": "BestEffortsRecoverIncompleteVersionTest.NonL0MissingFiles",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/version_set_test.cc:4806: Failure"
+      ]
+    },
+    {
+      "binary": "version_set_test",
+      "gtest_filter": "BestEffortsRecoverIncompleteVersionTest.MissingNonSuffixL0Files",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/version_set_test.cc:4806: Failure"
+      ]
+    },
+    {
+      "binary": "version_set_test",
+      "gtest_filter": "BestEffortsRecoverIncompleteVersionTest.MissingBlobFiles",
+      "confidence": "high",
+      "reported_failure_signature_lines": [
+        "db/version_set_test.cc:4806: Failure"
+      ]
+    },
+    {
+      "binary": "compaction_service_test",
+      "gtest_filter": "CompactionServiceTest.RemoteCompactionManifestFloorMutable",
+      "confidence": "high",
+      "reported_assertion": "compaction_service_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "BestEffortsRecoverIncompleteVersionTest/BestEffortsRecoverIncompleteVersionTest.Basic/0",
+      "confidence": "high",
+      "reported_assertion": "db_basic_test: db/version_builder.cc:1889: bool rocksdb::VersionBuilder::Rep::MissingL0FilesAreL0Suffix() const: Assertion `unaddressed_missing_files.find(file_number) != unaddressed_missing_files.end()' failed."
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "BestEffortsRecoverIncompleteVersionTest/BestEffortsRecoverIncompleteVersionTest.Basic/1",
+      "confidence": "high",
+      "reported_assertion": "db_basic_test: db/version_builder.cc:1889: bool rocksdb::VersionBuilder::Rep::MissingL0FilesAreL0Suffix() const: Assertion `unaddressed_missing_files.find(file_number) != unaddressed_missing_files.end()' failed."
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "DBBasicTest.RecoverWithMissingFiles",
+      "confidence": "uncertain_no_cpp_assertion_in_shard_log"
+    },
+    {
+      "binary": "db_basic_test",
+      "gtest_filter": "BestEffortsRecoverIncompleteVersionTest/BestEffortsRecoverIncompleteVersionTest.Basic/2",
+      "confidence": "high",
+      "reported_assertion": "db_basic_test: db/version_builder.cc:1889: bool rocksdb::VersionBuilder::Rep::MissingL0FilesAreL0Suffix() const: Assertion `unaddressed_missing_files.find(file_number) != unaddressed_missing_files.end()' failed."
+    },
+    {
+      "binary": "db_blob_basic_test",
+      "gtest_filter": "DBBlobBasicTest.BestEffortsRecovery_MissingNewestBlobFile",
+      "confidence": "high",
+      "reported_assertion": "db_blob_basic_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_follower_test",
+      "gtest_filter": "DBFollowerTest.RetryCatchup",
+      "confidence": "high",
+      "reported_assertion": "db_follower_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.MissingTableFileDuringOpen",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.OpenFilesAsyncNonDefaultCfCatchUp",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.InternalCompactionCompactedFiles",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.NewIteratorsPerColumnFamilyOptionsConsistentView",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/column_family.cc:1871: rocksdb::ColumnFamilySet::~ColumnFamilySet(): Assertion `last_ref' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.InternalCompactionMultiLevels",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTestWithTimestamp.IteratorAndGet",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/version_builder.cc:727: void rocksdb::VersionBuilder::Rep::RollbackLastApply(): Assertion `!undo_->rolled_back' failed."
+    },
+    {
+      "binary": "db_secondary_test",
+      "gtest_filter": "DBSecondaryTest.StaleActiveMemtableDoesNotShadowFlushedData",
+      "confidence": "high",
+      "reported_assertion": "db_secondary_test: db/version_set.cc:1043: rocksdb::Version::~Version(): Assertion `f->refs > 0' failed."
+    }
+  ],
+  "diagnostic_note": "The original status full run had 14 completed failures and 14 identified assert-abort shards. One shard case was uncertain because no C++ assertion text was present. Case controls compare the named baseline and candidate outcomes; they do not automatically classify causation."
+}
