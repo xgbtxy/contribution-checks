@@ -39,6 +39,20 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Install Snappy development dependency if missing
+        run: |
+          set -euo pipefail
+          if ! dpkg-query -W -f='${Status}' libsnappy-dev 2>/dev/null | grep -q 'install ok installed'; then
+            sudo apt-get update -qq >/tmp/rocksdb-snappy-install.log 2>&1
+            sudo apt-get install -y libsnappy-dev >>/tmp/rocksdb-snappy-install.log 2>&1
+            tail -n 20 /tmp/rocksdb-snappy-install.log > artifacts/logs/snappy-install-tail.log
+          fi
+          if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists snappy; then
+            pkg-config --modversion snappy > artifacts/logs/snappy-version.log
+          else
+            dpkg-query -W -f='${Package} ${Version}\n' libsnappy-dev > artifacts/logs/snappy-version.log
+          fi
+
       - name: Run the attributed baseline and optional candidate checks
         env:
           CANDIDATE_PATCH: ${{ inputs.candidate_patch }}

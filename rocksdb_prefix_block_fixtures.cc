@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
           {ROCKSDB_NAMESPACE::MakeInternalKey("user1", 2,
                                               ROCKSDB_NAMESPACE::kTypeDeletion),
            "v1"}}},
-        {"empty_user_footer_overlap",
+        {"empty_user_full_footer_overlap",
          16,
          {{ROCKSDB_NAMESPACE::MakeInternalKey(empty_target, 1,
                                               ROCKSDB_NAMESPACE::kTypeValue),

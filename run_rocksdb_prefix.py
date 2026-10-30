@@ -19,11 +19,41 @@ ROOT = Path(__file__).resolve().parent
 SOURCE_PIN = "87d442749a6a9f0fe5b9f07de7346466f8dd5acf"
 ISSUE_URL = "https://github.com/meta/rocksdb/issues/15439"
 FOCUSED_GTEST = "DBBasicTest.ReverseBytewiseCommonPrefixKeepsLatestValueVisible"
+BLOCK_GTEST_SUITE = "BlockCommonPrefixTest"
+TEST_ONLY_PATCH_PATHS = {
+    "db/db_basic_test.cc",
+    "table/block_based/block_test.cc",
+}
+EXPECTED_CANDIDATE_PATHS = {
+    "db/db_basic_test.cc",
+    "table/block_based/block.cc",
+    "table/block_based/block.h",
+    "table/block_based/block_builder.cc",
+    "table/block_based/block_test.cc",
+    "unreleased_history/bug_fixes/reverse_bytewise_common_prefix.md",
+}
+EXPECTED_BLOCK_GTESTS = {
+    "BlockCommonPrefixTest.PrefixDoesNotIncludeInternalKeyFooter",
+    "BlockCommonPrefixTest.LegacyDataBlocksPreserveSeekAndIteration",
+    "BlockCommonPrefixTest.LegacyInternalKeyIndexBlockPreservesSeek",
+}
+EXPECTED_RED_MARKERS = {
+    "BlockCommonPrefixTest.PrefixDoesNotIncludeInternalKeyFooter": (
+        "user_key.size()",
+        "prefix_size",
+    ),
+    "BlockCommonPrefixTest.LegacyDataBlocksPreserveSeekAndIteration": (
+        "iter->Valid()",
+    ),
+    "BlockCommonPrefixTest.LegacyInternalKeyIndexBlockPreservesSeek": (
+        "iter->Valid()",
+    ),
+    FOCUSED_GTEST: ("balance=250", "balance=100"),
+}
 SCENARIOS = ("update", "delete", "new")
 REPORTER_MODE_ARGUMENT = {"update": 0, "delete": 1, "new": 2}
 DISABLED_OPTIONAL_FEATURES = {
     "ROCKSDB_DISABLE_GFLAGS": "1",
-    "ROCKSDB_DISABLE_SNAPPY": "1",
     "ROCKSDB_DISABLE_ZLIB": "1",
     "ROCKSDB_DISABLE_BZIP": "1",
     "ROCKSDB_DISABLE_LZ4": "1",
@@ -34,6 +64,7 @@ DISABLED_OPTIONAL_FEATURES = {
     "ROCKSDB_DISABLE_MEMKIND": "1",
     "ROCKSDB_DISABLE_BACKTRACE": "1",
 }
+ENABLED_REQUIRED_FEATURES = {"SNAPPY": "system libsnappy-dev"}
 SOURCE_FILES = (
     "table/block_based/block_builder.cc",
     "table/block_based/block.h",
@@ -42,13 +73,13 @@ SOURCE_FILES = (
     "db/dbformat.h",
     "db/db_basic_test.cc",
 )
-HELPER_COMPILE_FLAGS = (
-    "-DNDEBUG",
-    "-fno-rtti",
+HELPER_PLATFORM_FLAGS = (
     "-DOS_LINUX",
     "-DROCKSDB_PLATFORM_POSIX",
     "-DROCKSDB_LIB_IO_POSIX",
 )
+RELEASE_HELPER_COMPILE_FLAGS = HELPER_PLATFORM_FLAGS + ("-DNDEBUG", "-fno-rtti")
+DEBUG_HELPER_COMPILE_FLAGS = HELPER_PLATFORM_FLAGS + ("-DROCKSDB_USE_RTTI",)
 HELPER_FILES = (
     ".github/workflows/hdf5-unsigned.yml",
     "REPORTER-ATTRIBUTION.md",
@@ -177,19 +208,41 @@ def run_command(
     return {**result, "stdout": stdout, "stderr": stderr}
 
 
-def source_snapshot(source: Path) -> dict:
+def source_status_paths(status: str) -> set[str]:
+    paths = set()
+    for line in status.splitlines():
+        if line.strip():
+            paths.add(line[3:].strip().strip('"'))
+    return paths
+
+
+def source_snapshot(source: Path, additional_paths: set[str] | None = None) -> dict:
     hashes = {}
-    for relative in SOURCE_FILES:
+    for relative in sorted(set(SOURCE_FILES) | (additional_paths or set())):
         path = source / relative
         if path.is_file():
+            head_blob_result = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "--verify", f"HEAD:{relative}"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
             hashes[relative] = {
                 "worktree_sha256": sha256_file(path),
-                "head_blob": git(source, "rev-parse", f"HEAD:{relative}"),
+                "head_blob": head_blob_result.stdout.strip()
+                if head_blob_result.returncode == 0
+                else None,
             }
+        else:
+            hashes[relative] = {"exists": False, "head_blob": None}
+    status = git(source, "status", "--porcelain=v1")
     return {
         "head": git(source, "rev-parse", "HEAD"),
         "origin_url": git(source, "remote", "get-url", "origin"),
-        "status_porcelain": git(source, "status", "--porcelain=v1"),
+        "status_porcelain": status,
+        "status_paths": sorted(source_status_paths(status)),
         "tracked_diff_paths": git(source, "diff", "--name-only").splitlines(),
         "tracked_source_hashes": hashes,
     }
@@ -199,8 +252,8 @@ def verify_source_pin(source: Path) -> dict:
     snapshot = source_snapshot(source)
     if snapshot["head"] != SOURCE_PIN:
         raise RuntimeError(f"source HEAD {snapshot['head']} != pin {SOURCE_PIN}")
-    if snapshot["tracked_diff_paths"]:
-        raise RuntimeError(f"baseline source has tracked changes: {snapshot['tracked_diff_paths']}")
+    if snapshot["status_paths"]:
+        raise RuntimeError(f"baseline source has changes: {snapshot['status_paths']}")
     normalized_origin = snapshot["origin_url"].rstrip("/")
     if normalized_origin.endswith(".git"):
         normalized_origin = normalized_origin[:-4]
@@ -238,18 +291,23 @@ def build_static_library(receipt: dict, source: Path, log_dir: Path, env: dict[s
         "bytes": library.stat().st_size,
         "sha256": sha256_file(library),
         "debug_level": "0",
-        "optional_compression_and_allocator_features": "disabled for the CPU repro",
+        "enabled_required_features": ENABLED_REQUIRED_FEATURES,
+        "disabled_optional_features": DISABLED_OPTIONAL_FEATURES,
     }
     config = source / "make_config.mk"
     config_text = config.read_text(encoding="utf-8", errors="replace") if config.is_file() else ""
-    forbidden_flags = ["-DSNAPPY", "-DZLIB", "-DBZIP2", "-DLZ4", "-DZSTD"]
+    forbidden_flags = ["-DZLIB", "-DBZIP2", "-DLZ4", "-DZSTD"]
     found_flags = [flag for flag in forbidden_flags if flag in config_text]
+    snappy_enabled = "-DSNAPPY" in config_text
     receipt["disabled_feature_check"] = {
         "make_config_sha256": sha256_file(config) if config.is_file() else None,
         "unexpected_optional_flags": found_flags,
+        "required_feature_flags": {"-DSNAPPY": snappy_enabled},
     }
     if found_flags:
         raise RuntimeError(f"optional codec unexpectedly enabled: {found_flags}")
+    if not snappy_enabled:
+        raise RuntimeError("Snappy must be enabled for the baseline build")
     write_json(log_dir.parent / "receipt.json", receipt)
 
 
@@ -261,13 +319,17 @@ def compile_program(
     env: dict[str, str],
     name: str,
     helper_source: Path,
+    debug_level: int = 0,
 ) -> Path:
     output = output_dir / name
+    compile_flags = (
+        DEBUG_HELPER_COMPILE_FLAGS if debug_level == 1 else RELEASE_HELPER_COMPILE_FLAGS
+    )
     command = [
         "g++",
         "-std=c++20",
         "-O2",
-        *HELPER_COMPILE_FLAGS,
+        *compile_flags,
         "-Iinclude",
         "-I.",
         str(helper_source),
@@ -276,6 +338,7 @@ def compile_program(
         "-ldl",
         "-lrt",
         "-latomic",
+        "-lsnappy",
         "-o",
         str(output),
     ]
@@ -290,6 +353,13 @@ def compile_program(
     )
     if not result["ok"] or not output.is_file():
         raise RuntimeError(f"failed to compile {name}")
+    receipt.setdefault("helper_compiles", {})[name] = {
+        "debug_level": debug_level,
+        "flags": list(compile_flags),
+        "binary_sha256": sha256_file(output),
+        "binary_bytes": output.stat().st_size,
+    }
+    write_json(log_dir.parent / "receipt.json", receipt)
     return output
 
 
@@ -517,6 +587,220 @@ def resolve_helper_path(raw: str) -> Path:
     return path
 
 
+def list_block_common_prefix_tests(
+    receipt: dict,
+    block_test: Path,
+    source: Path,
+    log_dir: Path,
+    env: dict[str, str],
+    phase: str,
+) -> list[str]:
+    result = run_command(
+        receipt,
+        f"{phase}-list-block-common-prefix-tests",
+        [
+            str(block_test),
+            "--gtest_list_tests",
+            f"--gtest_filter={BLOCK_GTEST_SUITE}.*",
+        ],
+        source,
+        log_dir,
+        timeout=30,
+        env=env,
+    )
+    if not result["ok"]:
+        raise RuntimeError(f"could not list {BLOCK_GTEST_SUITE} tests")
+    output = result["stdout"].decode("utf-8", errors="replace")
+    suite = ""
+    filters = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not line[:1].isspace() and stripped.endswith("."):
+            suite = stripped[:-1]
+        elif line[:1].isspace() and suite.startswith(BLOCK_GTEST_SUITE):
+            test_name = stripped.split("#", 1)[0].strip().split(" ", 1)[0]
+            if test_name and not test_name.startswith("DISABLED_"):
+                filters.append(f"{suite}.{test_name}")
+    if set(filters) != EXPECTED_BLOCK_GTESTS:
+        raise RuntimeError(
+            f"expected three {BLOCK_GTEST_SUITE} cases, discovered {filters}"
+        )
+    return filters
+
+
+def run_focused_gtest_cases(
+    receipt: dict,
+    source: Path,
+    log_dir: Path,
+    env: dict[str, str],
+    phase: str,
+    expect_pass: bool,
+    build_targets: bool = True,
+) -> list[dict]:
+    debug_env = dict(env)
+    debug_env["DEBUG_LEVEL"] = "1"
+    if build_targets:
+        build = run_command(
+            receipt,
+            f"{phase}-debug-test-build",
+            [
+                "make",
+                "AUTO_CLEAN=1",
+                "DEBUG_LEVEL=1",
+                "-j2",
+                "static_lib",
+                "block_test",
+                "db_basic_test",
+            ],
+            source,
+            log_dir,
+            timeout=35 * 60,
+            env=debug_env,
+        )
+        if not build["ok"]:
+            raise RuntimeError(f"{phase} debug test build failed")
+
+    filters = list_block_common_prefix_tests(
+        receipt, source / "block_test", source, log_dir, debug_env, phase
+    )
+    filters.append(FOCUSED_GTEST)
+    results = []
+    for filter_name in filters:
+        is_block_test = filter_name.startswith(BLOCK_GTEST_SUITE + ".")
+        binary = source / ("block_test" if is_block_test else "db_basic_test")
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", filter_name)
+        result = run_command(
+            receipt,
+            f"{phase}-gtest-{safe_name}",
+            [
+                "timeout",
+                "60s",
+                str(binary),
+                f"--gtest_filter={filter_name}",
+            ],
+            source,
+            log_dir,
+            timeout=70,
+            env=debug_env,
+            expected_exit=0 if expect_pass else None,
+        )
+        output = (result["stdout"] + result["stderr"]).decode(
+            "utf-8", errors="replace"
+        )
+        if expect_pass:
+            passed_markers = (
+                f"[ RUN      ] {filter_name}",
+                f"[       OK ] {filter_name}",
+                "[  PASSED  ] 1 test",
+            )
+            missing = [marker for marker in passed_markers if marker not in output]
+            ok = result["exit_code"] == 0 and not result["timed_out"] and not missing
+            if not ok:
+                raise RuntimeError(
+                    f"{phase} focused gtest failed or did not execute one test: "
+                    f"{filter_name}; missing={missing}"
+                )
+        else:
+            # Only a named gtest assertion with expected mismatch context is
+            # evidence of the regression. Timeouts, aborts, and unrelated
+            # nonzero exits remain validation failures for human review.
+            expected_markers = (
+                f"[ RUN      ] {filter_name}",
+                f"[  FAILED  ] {filter_name}",
+                *EXPECTED_RED_MARKERS[filter_name],
+            )
+            missing = [marker for marker in expected_markers if marker not in output]
+            ok = (
+                result["exit_code"] not in (None, 0, 124)
+                and not result["timed_out"]
+                and not missing
+            )
+            if not ok:
+                raise RuntimeError(
+                    f"{phase} expected baseline assertion did not match: "
+                    f"{filter_name}; missing={missing}; exit={result['exit_code']}"
+                )
+        results.append(
+            {
+                "filter": filter_name,
+                "binary": binary.name,
+                "expected": "pass" if expect_pass else "red",
+                "exit_code": result["exit_code"],
+                "timed_out": result["timed_out"],
+                "expected_assertion_markers": list(
+                    EXPECTED_RED_MARKERS.get(filter_name, ())
+                ),
+                "failure_marker": f"[  FAILED  ] {filter_name}" in output,
+                "timeout_seconds": 60,
+                "ok": ok,
+            }
+        )
+    return results
+
+
+def run_tests_only_red_patch(
+    receipt: dict,
+    source: Path,
+    log_dir: Path,
+    env: dict[str, str],
+    patch_path: Path,
+) -> None:
+    patch = patch_path.read_bytes()
+    expected_paths = candidate_patch_paths(patch)
+    if expected_paths != TEST_ONLY_PATCH_PATHS:
+        raise RuntimeError(
+            f"tests-only patch paths {sorted(expected_paths)} differ from expected "
+            f"{sorted(TEST_ONLY_PATCH_PATHS)}"
+        )
+    receipt["tests_only_baseline"] = {
+        "status": "applying_patch",
+        "patch_path": str(patch_path.relative_to(ROOT)),
+        "patch_sha256": sha256_bytes(patch),
+        "expected_paths": sorted(expected_paths),
+    }
+    for suffix, args in (
+        ("check", ["git", "apply", "--check", str(patch_path)]),
+        ("apply", ["git", "apply", str(patch_path)]),
+    ):
+        result = run_command(
+            receipt,
+            f"tests-only-patch-{suffix}",
+            args,
+            source,
+            log_dir,
+            timeout=30,
+            env=env,
+        )
+        if not result["ok"]:
+            raise RuntimeError(f"tests-only patch {suffix} failed")
+    snapshot = source_snapshot(source, expected_paths)
+    if set(snapshot["status_paths"]) != expected_paths:
+        raise RuntimeError("tests-only source paths do not match the patch headers")
+    receipt["tests_only_baseline"]["source_after_patch"] = snapshot
+    red_results = run_focused_gtest_cases(
+        receipt, source, log_dir, env, "tests-only-baseline-red", expect_pass=False
+    )
+    receipt["tests_only_baseline"]["tests"] = red_results
+    reverse = run_command(
+        receipt,
+        "tests-only-patch-reverse",
+        ["git", "apply", "--reverse", str(patch_path)],
+        source,
+        log_dir,
+        timeout=30,
+        env=env,
+    )
+    if not reverse["ok"]:
+        raise RuntimeError("could not reverse the tests-only patch")
+    clean = source_snapshot(source)
+    if clean["status_paths"]:
+        raise RuntimeError(f"source is not clean after reversing tests-only patch: {clean['status_paths']}")
+    receipt["tests_only_baseline"]["source_after_reversal"] = clean
+    receipt["tests_only_baseline"]["status"] = "expected_red_confirmed"
+
+
 def record_helper_hashes() -> dict:
     result = {}
     for relative in HELPER_FILES:
@@ -570,8 +854,8 @@ def run_candidate(
     )
     if not apply["ok"]:
         raise RuntimeError("candidate patch application failed")
-    snapshot = source_snapshot(source)
-    changed = set(snapshot["tracked_diff_paths"])
+    snapshot = source_snapshot(source, expected_paths)
+    changed = set(snapshot["status_paths"])
     if changed != expected_paths:
         raise RuntimeError(
             f"patched source paths {sorted(changed)} differ from patch headers {sorted(expected_paths)}"
@@ -654,6 +938,477 @@ def run_candidate(
     receipt["candidate"]["status"] = "candidate_checks_pass"
 
 
+def apply_review_patch(
+    receipt: dict,
+    source: Path,
+    log_dir: Path,
+    env: dict[str, str],
+    patch_path: Path,
+    phase: str,
+    required_paths: set[str] | None = None,
+) -> tuple[set[str], dict]:
+    patch_bytes = patch_path.read_bytes()
+    expected_paths = candidate_patch_paths(patch_bytes)
+    if not expected_paths:
+        raise RuntimeError(f"{phase} patch has no file paths")
+    if required_paths is not None and expected_paths != required_paths:
+        raise RuntimeError(
+            f"{phase} patch paths {sorted(expected_paths)} differ from expected "
+            f"{sorted(required_paths)}"
+        )
+    patch_info = {
+        "status": "checking_patch",
+        "patch_path": str(patch_path.relative_to(ROOT)),
+        "patch_sha256": sha256_bytes(patch_bytes),
+        "expected_paths": sorted(expected_paths),
+    }
+    for suffix, command in (
+        ("check", ["git", "apply", "--check", str(patch_path)]),
+        ("apply", ["git", "apply", str(patch_path)]),
+    ):
+        result = run_command(
+            receipt,
+            f"{phase}-patch-{suffix}",
+            command,
+            source,
+            log_dir,
+            timeout=30,
+            env=env,
+        )
+        if not result["ok"]:
+            raise RuntimeError(f"{phase} patch {suffix} failed")
+    snapshot = source_snapshot(source, expected_paths)
+    changed = set(snapshot["status_paths"])
+    if changed != expected_paths:
+        raise RuntimeError(
+            f"{phase} source paths {sorted(changed)} differ from patch headers "
+            f"{sorted(expected_paths)}"
+        )
+    patch_info["source_after_patch"] = snapshot
+    patch_info["status"] = "applied"
+    return expected_paths, patch_info
+
+
+def reverse_review_patch(
+    receipt: dict,
+    source: Path,
+    log_dir: Path,
+    env: dict[str, str],
+    patch_path: Path,
+    phase: str,
+) -> dict:
+    result = run_command(
+        receipt,
+        f"{phase}-patch-reverse",
+        ["git", "apply", "--reverse", str(patch_path)],
+        source,
+        log_dir,
+        timeout=30,
+        env=env,
+    )
+    if not result["ok"]:
+        raise RuntimeError(f"could not reverse the {phase} patch")
+    snapshot = source_snapshot(source)
+    if snapshot["status_paths"]:
+        raise RuntimeError(
+            f"source is not clean after reversing {phase} patch: {snapshot['status_paths']}"
+        )
+    return snapshot
+
+
+def parse_cpp_hex_array(source: Path, array_name: str) -> bytes:
+    text = source.read_text(encoding="utf-8")
+    pattern = rf"const char\s+{re.escape(array_name)}\[\]\s*=([\s\S]*?);"
+    match = re.search(pattern, text)
+    if not match:
+        raise RuntimeError(f"legacy golden array is missing: {array_name}")
+    literals = re.findall(r'"((?:\\.|[^"\\])*)"', match.group(1))
+    if not literals:
+        raise RuntimeError(f"legacy golden array has no string literals: {array_name}")
+    data = bytearray()
+    for literal in literals:
+        escapes = re.findall(r"\\x([0-9a-fA-F]{2})", literal)
+        residual = re.sub(r"\\x[0-9a-fA-F]{2}", "", literal)
+        if residual:
+            data.extend(residual.encode("latin-1"))
+        data.extend(int(value, 16) for value in escapes)
+    return bytes(data)
+
+
+def verify_legacy_fixture_literals(
+    receipt: dict, source: Path, artifact_dir: Path, fixtures: list[dict]
+) -> list[dict]:
+    mapping = {
+        "kLegacyValueTagOverlapRestartBoundary": "value_tag_overlap_restart_boundary",
+        "kLegacyDeleteTagOverlap": "delete_tag_overlap",
+        "kLegacyEmptyUserFullFooterOverlap": "empty_user_full_footer_overlap",
+    }
+    by_name = {fixture["name"]: fixture for fixture in fixtures}
+    test_source = source / "table/block_based/block_test.cc"
+    comparisons = []
+    for array_name, fixture_name in mapping.items():
+        if fixture_name not in by_name:
+            raise RuntimeError(f"generated legacy fixture missing: {fixture_name}")
+        expected = parse_cpp_hex_array(test_source, array_name)
+        raw_path = artifact_dir / by_name[fixture_name]["raw_path"]
+        actual = raw_path.read_bytes()
+        comparison = {
+            "array": array_name,
+            "fixture": fixture_name,
+            "expected_bytes": len(expected),
+            "actual_bytes": len(actual),
+            "expected_sha256": sha256_bytes(expected),
+            "actual_sha256": sha256_bytes(actual),
+            "matches": expected == actual,
+        }
+        if not comparison["matches"]:
+            raise RuntimeError(
+                f"baseline BlockBuilder bytes do not match immutable {array_name} literal"
+            )
+        comparisons.append(comparison)
+    receipt["legacy_fixture_comparisons"] = comparisons
+    write_json(artifact_dir / "legacy-fixture-comparisons.json", comparisons)
+    return comparisons
+
+
+def verify_candidate_manifest(
+    source: Path,
+    manifest_path: Path,
+    tests_only_patch: Path,
+    candidate_patch: Path,
+    required_candidate_paths: set[str] | None = None,
+) -> dict:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("source_base") != SOURCE_PIN:
+        raise RuntimeError("candidate manifest base differs from the pinned source")
+    if sha256_file(tests_only_patch) != manifest.get("tests_only_patch_sha256"):
+        raise RuntimeError("tests-only patch SHA-256 differs from the candidate manifest")
+    if sha256_file(candidate_patch) != manifest.get("candidate_patch_sha256"):
+        raise RuntimeError("candidate patch SHA-256 differs from the candidate manifest")
+    paths = set(manifest.get("files", {}))
+    if required_candidate_paths is not None and paths != required_candidate_paths:
+        raise RuntimeError("candidate manifest file list differs from the approved six-file set")
+    for relative in TEST_ONLY_PATCH_PATHS:
+        spec = manifest["files"].get(relative)
+        if not spec:
+            raise RuntimeError(f"candidate manifest omits tests-only path: {relative}")
+    return manifest
+
+
+def verify_candidate_blobs(
+    source: Path, manifest: dict, paths: set[str]
+) -> dict[str, str]:
+    hashes = {}
+    for relative in sorted(paths):
+        if relative not in manifest["files"]:
+            raise RuntimeError(f"candidate manifest has no blob for {relative}")
+        path = source / relative
+        if not path.is_file():
+            raise RuntimeError(f"candidate source file is missing: {relative}")
+        actual = git(source, "hash-object", str(path))
+        expected = manifest["files"][relative]["git_blob"]
+        if actual != expected:
+            raise RuntimeError(
+                f"candidate blob mismatch for {relative}: {actual} != {expected}"
+            )
+        hashes[relative] = actual
+    return hashes
+
+
+def build_debug_targets(
+    receipt: dict,
+    source: Path,
+    log_dir: Path,
+    env: dict[str, str],
+    name: str,
+) -> dict[str, str]:
+    debug_env = dict(env)
+    debug_env["DEBUG_LEVEL"] = "1"
+    result = run_command(
+        receipt,
+        name,
+        [
+            "make",
+            "AUTO_CLEAN=1",
+            "DEBUG_LEVEL=1",
+            "-j2",
+            "static_lib",
+            "block_test",
+            "db_basic_test",
+        ],
+        source,
+        log_dir,
+        timeout=35 * 60,
+        env=debug_env,
+    )
+    if not result["ok"]:
+        raise RuntimeError(f"{name} failed or timed out")
+    for binary in ("librocksdb.a", "block_test", "db_basic_test"):
+        path = source / binary
+        if not path.is_file():
+            raise RuntimeError(f"debug build succeeded but {binary} is missing")
+    receipt.setdefault("libraries", {})[name] = {
+        "path": "librocksdb.a",
+        "bytes": (source / "librocksdb.a").stat().st_size,
+        "sha256": sha256_file(source / "librocksdb.a"),
+        "debug_level": "1",
+        "test_binaries": {
+            binary: sha256_file(source / binary)
+            for binary in ("block_test", "db_basic_test")
+        },
+    }
+    write_json(log_dir.parent / "receipt.json", receipt)
+    return debug_env
+
+
+def run_focused_candidate_phase_impl(
+    receipt: dict,
+    source: Path,
+    artifact_dir: Path,
+    log_dir: Path,
+    output_dir: Path,
+    env: dict[str, str],
+    tests_only_patch: Path,
+    candidate_patch: Path,
+    manifest_path: Path,
+) -> None:
+    manifest = verify_candidate_manifest(
+        source,
+        manifest_path,
+        tests_only_patch,
+        candidate_patch,
+        EXPECTED_CANDIDATE_PATHS,
+    )
+    tests_paths, tests_info = apply_review_patch(
+        receipt,
+        source,
+        log_dir,
+        env,
+        tests_only_patch,
+        "tests-only",
+        TEST_ONLY_PATCH_PATHS,
+    )
+    tests_info["source_blob_sha256"] = verify_candidate_blobs(
+        source, manifest, tests_paths
+    )
+    receipt["tests_only_baseline"] = tests_info
+    debug_env = build_debug_targets(
+        receipt, source, log_dir, env, "tests-only-baseline-debug-build"
+    )
+
+    base_compat = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        debug_env,
+        "rocksdb-prefix-debug-baseline-old-sst",
+        ROOT / "rocksdb_prefix_old_sst.cc",
+        debug_level=1,
+    )
+    base_fixtures = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        debug_env,
+        "rocksdb-prefix-debug-baseline-block-fixtures",
+        ROOT / "rocksdb_prefix_block_fixtures.cc",
+        debug_level=1,
+    )
+    baseline_fixtures = fixture_manifest(
+        receipt,
+        base_fixtures,
+        source,
+        artifact_dir,
+        log_dir,
+        debug_env,
+        "focused-baseline",
+    )
+    receipt["focused_baseline"] = {
+        "block_fixtures": baseline_fixtures,
+        "legacy_fixture_comparisons": verify_legacy_fixture_literals(
+            receipt, source, artifact_dir, baseline_fixtures
+        ),
+        "old_sst": write_old_sst_fixtures(
+            receipt, base_compat, source, artifact_dir, log_dir, debug_env
+        ),
+    }
+    receipt["tests_only_baseline"]["tests"] = run_focused_gtest_cases(
+        receipt,
+        source,
+        log_dir,
+        debug_env,
+        "tests-only-baseline-red",
+        expect_pass=False,
+        build_targets=False,
+    )
+    receipt["tests_only_baseline"]["source_after_reversal"] = reverse_review_patch(
+        receipt, source, log_dir, debug_env, tests_only_patch, "tests-only"
+    )
+    receipt["tests_only_baseline"]["status"] = "expected_red_confirmed"
+
+    candidate_paths, candidate_info = apply_review_patch(
+        receipt,
+        source,
+        log_dir,
+        debug_env,
+        candidate_patch,
+        "candidate",
+        EXPECTED_CANDIDATE_PATHS,
+    )
+    candidate_info["source_blob_sha256"] = verify_candidate_blobs(
+        source, manifest, candidate_paths
+    )
+    receipt["candidate"] = candidate_info
+    debug_env = build_debug_targets(
+        receipt, source, log_dir, debug_env, "candidate-incremental-debug-build"
+    )
+    candidate_repro = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        debug_env,
+        "rocksdb-prefix-debug-candidate-repro",
+        ROOT / "report-15439-repro.cc",
+        debug_level=1,
+    )
+    candidate_compat = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        debug_env,
+        "rocksdb-prefix-debug-candidate-old-sst",
+        ROOT / "rocksdb_prefix_old_sst.cc",
+        debug_level=1,
+    )
+    candidate_fixtures = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        debug_env,
+        "rocksdb-prefix-debug-candidate-block-fixtures",
+        ROOT / "rocksdb_prefix_block_fixtures.cc",
+        debug_level=1,
+    )
+
+    # Read baseline-created files before any candidate binary writes new files.
+    run_candidate_compatibility(
+        receipt, candidate_compat, source, artifact_dir, log_dir, debug_env
+    )
+    receipt["candidate"]["repro_matrix"] = run_repro_matrix(
+        receipt, candidate_repro, source, artifact_dir, log_dir, debug_env, "candidate"
+    )
+    receipt["candidate"]["block_fixtures"] = fixture_manifest(
+        receipt,
+        candidate_fixtures,
+        source,
+        artifact_dir,
+        log_dir,
+        debug_env,
+        "candidate-debug",
+    )
+    receipt["candidate"]["focused_gtest"] = run_focused_gtest_cases(
+        receipt,
+        source,
+        log_dir,
+        debug_env,
+        "candidate-focused-green",
+        expect_pass=True,
+        build_targets=False,
+    )
+    receipt["candidate"]["status"] = "focused_candidate_checks_pass"
+
+
+def run_release_baseline_phase(
+    receipt: dict,
+    source: Path,
+    artifact_dir: Path,
+    log_dir: Path,
+    output_dir: Path,
+    env: dict[str, str],
+) -> None:
+    baseline_source = verify_source_pin(source)
+    receipt["source_before_baseline"] = baseline_source
+    output_dir.mkdir(parents=True, exist_ok=True)
+    build_static_library(receipt, source, log_dir, env, "baseline-static-lib")
+    base_repro = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        env,
+        "rocksdb-prefix-baseline-repro",
+        ROOT / "report-15439-repro.cc",
+        debug_level=0,
+    )
+    base_compat = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        env,
+        "rocksdb-prefix-baseline-old-sst",
+        ROOT / "rocksdb_prefix_old_sst.cc",
+        debug_level=0,
+    )
+    base_fixtures = compile_program(
+        receipt,
+        source,
+        output_dir,
+        log_dir,
+        env,
+        "rocksdb-prefix-baseline-block-fixtures",
+        ROOT / "rocksdb_prefix_block_fixtures.cc",
+        debug_level=0,
+    )
+    after_build = source_snapshot(source)
+    if after_build["tracked_source_hashes"] != baseline_source["tracked_source_hashes"]:
+        raise RuntimeError("baseline build changed one or more tracked source files")
+    receipt["source_after_baseline_build"] = after_build
+    receipt["baseline"] = {
+        "repro_matrix": run_repro_matrix(
+            receipt, base_repro, source, artifact_dir, log_dir, env, "baseline"
+        ),
+        "block_fixtures": fixture_manifest(
+            receipt, base_fixtures, source, artifact_dir, log_dir, env, "baseline"
+        ),
+        "old_sst": write_old_sst_fixtures(
+            receipt, base_compat, source, artifact_dir, log_dir, env
+        ),
+        "status": "reproduction_confirmed",
+    }
+
+
+def run_focused_candidate_phase(
+    receipt: dict,
+    source: Path,
+    artifact_dir: Path,
+    log_dir: Path,
+    output_dir: Path,
+    env: dict[str, str],
+    tests_only_patch: Path,
+    candidate_patch: Path,
+    manifest_path: Path,
+) -> None:
+    source_before = verify_source_pin(source)
+    receipt["source_before_focused"] = source_before
+    run_focused_candidate_phase_impl(
+        receipt,
+        source,
+        artifact_dir,
+        log_dir,
+        output_dir,
+        env,
+        tests_only_patch,
+        candidate_patch,
+        manifest_path,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
@@ -690,15 +1445,19 @@ def main() -> int:
             "execution": "CPU-only",
             "make_jobs": 2,
             "debug_level": 0,
-            "helper_compile_flags": list(HELPER_COMPILE_FLAGS),
+            "helper_compile_flags": {
+                "release": list(RELEASE_HELPER_COMPILE_FLAGS),
+                "debug": list(DEBUG_HELPER_COMPILE_FLAGS),
+            },
             "optional_features": DISABLED_OPTIONAL_FEATURES,
+            "enabled_required_features": ENABLED_REQUIRED_FEATURES,
         },
         "helper_file_hashes": record_helper_hashes(),
         "block_fixture_spec": {
             "restart_interval": {
                 "value_tag_overlap_restart_boundary": 2,
                 "delete_tag_overlap": 2,
-                "empty_user_footer_overlap": 16,
+                "empty_user_full_footer_overlap": 16,
             },
             "use_common_prefix": True,
             "use_delta_encoding": True,
@@ -719,7 +1478,7 @@ def main() -> int:
                     {"user_key_hex": "757365723100", "sequence": 3, "type": "value", "value": "v0"},
                     {"user_key_hex": "7573657231", "sequence": 2, "type": "deletion", "value": "v1"},
                 ],
-                "empty_user_footer_overlap": [
+                "empty_user_full_footer_overlap": [
                     {"user_key_hex": "0100000000000000", "sequence": 1, "type": "value", "value": "n0"},
                     {"user_key_hex": "", "sequence": 0, "type": "value", "value": "v0"},
                 ],
@@ -798,7 +1557,8 @@ def main() -> int:
                 raise RuntimeError("focused gtest requires --candidate-patch")
             receipt["candidate"] = {"status": "not_requested"}
 
-        receipt["source_after"] = source_snapshot(source)
+        final_patch_paths = set(receipt.get("candidate", {}).get("expected_paths", []))
+        receipt["source_after"] = source_snapshot(source, final_patch_paths)
         receipt["status"] = (
             "candidate_checks_pass"
             if receipt["candidate"]["status"] == "candidate_checks_pass"
