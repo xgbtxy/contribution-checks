@@ -59,13 +59,18 @@ def check_build(source):
     required = {
         "TVM_USE_INSTALLED_TIRX": "OFF", "TVM_TIRX_USE_CUDA": "OFF",
         "TVM_TIRX_BUILD_TESTS": "OFF", "TVM_USE_CUTLASS": "OFF", "BUILD_TESTING": "OFF",
+        "TVM_BUILD_PYTHON_MODULE": "OFF", "TVM_FFI_BUILD_PYTHON_MODULE": "OFF",
     }
     if any(entries.get(key, "").upper() != value for key, value in required.items()):
         raise RuntimeError("CMakeCache does not match the CPU LLVM build settings")
     llvm = entries.get("TVM_TIRX_USE_LLVM", "")
     if "llvm-config-18" not in llvm or not Path(llvm).exists():
         raise RuntimeError(f"LLVM 18 not configured: {llvm!r}")
-    return {**required, "TVM_TIRX_USE_LLVM": llvm}
+    python = Path(sys.executable).resolve()
+    for name in ("Python_EXECUTABLE", "Python3_EXECUTABLE"):
+        if Path(entries.get(name, "")).resolve() != python:
+            raise RuntimeError(f"{name} does not match test interpreter {python}")
+    return {**required, "TVM_TIRX_USE_LLVM": llvm, "Python_EXECUTABLE": str(python), "Python3_EXECUTABLE": str(python)}
 
 
 def main():
@@ -77,6 +82,7 @@ def main():
     receipt = {
         "issue": "https://github.com/apache/tvm/issues/20823", "expected": EXPECTED,
         "expected_baseline_bug": BASELINE_BUG, "python": sys.version,
+        "gpu_tests": "not_run (CUDA disabled; CPU LLVM baseline)",
         "library_paths": {k: os.environ.get(k) for k in ("TVM_LIBRARY_PATH", "TVM_TIRX_LIBRARY_PATH")},
         "status": "failed",
     }
