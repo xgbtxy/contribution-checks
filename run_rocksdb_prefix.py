@@ -41,12 +41,18 @@ EXPECTED_RED_MARKERS = {
     "BlockCommonPrefixTest.PrefixDoesNotIncludeInternalKeyFooter": (
         "user_key.size()",
         "prefix_size",
+        "Which is: 0",
+        "Which is: 1",
     ),
     "BlockCommonPrefixTest.LegacyDataBlocksPreserveSeekAndIteration": (
         "iter->Valid()",
+        "Which is: false",
+        "Which is: true",
     ),
     "BlockCommonPrefixTest.LegacyInternalKeyIndexBlockPreservesSeek": (
         "iter->Valid()",
+        "Which is: false",
+        "Which is: true",
     ),
     FOCUSED_GTEST: ("balance=250", "balance=100"),
 }
@@ -83,6 +89,9 @@ DEBUG_HELPER_COMPILE_FLAGS = HELPER_PLATFORM_FLAGS + ("-DROCKSDB_USE_RTTI",)
 HELPER_FILES = (
     ".github/workflows/hdf5-unsigned.yml",
     "REPORTER-ATTRIBUTION.md",
+    "patches/rocksdb-prefix-15439/TESTS_ONLY.patch",
+    "patches/rocksdb-prefix-15439/CANDIDATE.patch",
+    "patches/rocksdb-prefix-15439/candidate-manifest.json",
     "report-15439-repro.cc",
     "rocksdb_prefix_block_fixtures.cc",
     "rocksdb_prefix_old_sst.cc",
@@ -109,6 +118,64 @@ def sha256_file(path: Path) -> str:
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def capture_runtime_metadata(source: Path) -> dict:
+    metadata = {}
+    for name, command in (
+        ("uname", ["uname", "-a"]),
+        ("g++_version", ["g++", "--version"]),
+        ("g++_numeric_version", ["g++", "-dumpfullversion", "-dumpversion"]),
+        ("make_version", ["make", "--version"]),
+        ("git_version", ["git", "--version"]),
+        ("cpu_count", ["nproc"]),
+        ("disk", ["df", "-h", "."]),
+    ):
+        result = subprocess.run(
+            command,
+            cwd=source,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"runtime metadata command failed: {command}")
+        output = result.stdout.strip()
+        if name in {"g++_version", "make_version"}:
+            output = output.splitlines()[0] if output else ""
+        metadata[name] = output
+    meminfo = Path("/proc/meminfo").read_text(encoding="ascii", errors="replace")
+    metadata["mem_total"] = next(
+        (line.strip() for line in meminfo.splitlines() if line.startswith("MemTotal:")),
+        "unavailable",
+    )
+    return metadata
+
+
+def make_config_facts(source: Path) -> dict:
+    path = source / "make_config.mk"
+    if not path.is_file():
+        return {"path": str(path), "exists": False}
+    selected = []
+    patterns = (
+        "COMMON_FLAGS",
+        "PLATFORM_CXXFLAGS",
+        "OPT",
+        "CXXFLAGS",
+        "LDFLAGS",
+        "PLATFORM_LDFLAGS",
+    )
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if any(line.lstrip().startswith(name) for name in patterns):
+            selected.append(line)
+    return {
+        "path": "make_config.mk",
+        "sha256": sha256_file(path),
+        "selected_flag_lines": selected,
+    }
 
 
 def git(source: Path, *args: str) -> str:
@@ -308,6 +375,7 @@ def build_static_library(receipt: dict, source: Path, log_dir: Path, env: dict[s
         raise RuntimeError(f"optional codec unexpectedly enabled: {found_flags}")
     if not snappy_enabled:
         raise RuntimeError("Snappy must be enabled for the baseline build")
+    receipt["make_config"] = make_config_facts(source)
     write_json(log_dir.parent / "receipt.json", receipt)
 
 
@@ -1144,6 +1212,14 @@ def build_debug_targets(
     )
     if not result["ok"]:
         raise RuntimeError(f"{name} failed or timed out")
+    config = make_config_facts(source)
+    selected_flags = "\n".join(config.get("selected_flag_lines", []))
+    if "-DSNAPPY" not in selected_flags:
+        raise RuntimeError("Snappy is not enabled in the debug make_config")
+    for flag in ("-DZLIB", "-DBZIP2", "-DLZ4", "-DZSTD"):
+        if flag in selected_flags:
+            raise RuntimeError(f"unexpected optional codec in debug make_config: {flag}")
+    receipt["make_config"] = config
     for binary in ("librocksdb.a", "block_test", "db_basic_test"):
         path = source / binary
         if not path.is_file():
@@ -1414,8 +1490,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
+    parser.add_argument(
+        "--phase",
+        choices=("release-baseline", "focused"),
+        default="release-baseline",
+    )
+    parser.add_argument("--tests-only-patch", default="")
     parser.add_argument("--candidate-patch", default="")
-    parser.add_argument("--run-focused-gtest", action="store_true")
+    parser.add_argument(
+        "--candidate-manifest",
+        default="patches/rocksdb-prefix-15439/candidate-manifest.json",
+    )
     args = parser.parse_args()
 
     source = args.source.resolve()
@@ -1430,6 +1515,7 @@ def main() -> int:
         "issue": ISSUE_URL,
         "reporter": "hanke580",
         "coordination_comment": "https://github.com/meta/rocksdb/issues/15439#issuecomment-6514576612",
+        "phase": args.phase,
         "started_utc": utc(),
         "source_pin": SOURCE_PIN,
         "source_path": str(source),
@@ -1445,7 +1531,7 @@ def main() -> int:
             "runner": "ubuntu-24.04",
             "execution": "CPU-only",
             "make_jobs": 2,
-            "debug_level": 0,
+            "debug_level": 0 if args.phase == "release-baseline" else 1,
             "helper_compile_flags": {
                 "release": list(RELEASE_HELPER_COMPILE_FLAGS),
                 "debug": list(DEBUG_HELPER_COMPILE_FLAGS),
@@ -1492,84 +1578,59 @@ def main() -> int:
 
     try:
         baseline_source = verify_source_pin(source)
-        receipt["source_before_baseline"] = baseline_source
+        receipt["source_before_phase"] = baseline_source
+        receipt["system"] = capture_runtime_metadata(source)
         env = make_env()
-
         output_dir.mkdir(parents=True, exist_ok=True)
-        build_static_library(receipt, source, log_dir, env, "baseline-static-lib")
-        base_repro = compile_program(
-            receipt,
-            source,
-            output_dir,
-            log_dir,
-            env,
-            "rocksdb-prefix-baseline-repro",
-            ROOT / "report-15439-repro.cc",
-        )
-        base_compat = compile_program(
-                receipt,
-                source,
-                output_dir,
-                log_dir,
-                env,
-                "rocksdb-prefix-baseline-old-sst",
-                ROOT / "rocksdb_prefix_old_sst.cc",
+        if args.phase == "release-baseline":
+            if args.tests_only_patch or args.candidate_patch:
+                raise RuntimeError(
+                    "release-baseline never applies tests-only or production patches"
+                )
+            run_release_baseline_phase(
+                receipt, source, artifact_dir, log_dir, output_dir, env
             )
-        base_fixtures = compile_program(
-                receipt,
-                source,
-                output_dir,
-                log_dir,
-                env,
-                "rocksdb-prefix-baseline-block-fixtures",
-                ROOT / "rocksdb_prefix_block_fixtures.cc",
+            receipt["tests_only_baseline"] = {"status": "not_requested"}
+            receipt["candidate"] = {"status": "not_requested"}
+            receipt["status"] = "baseline_reproduction_confirmed"
+        else:
+            if not args.tests_only_patch or not args.candidate_patch:
+                raise RuntimeError(
+                    "focused phase requires both frozen tests-only and candidate patches"
+                )
+            tests_patch = resolve_helper_path(args.tests_only_patch)
+            candidate_patch = resolve_helper_path(args.candidate_patch)
+            manifest_path = resolve_helper_path(args.candidate_manifest)
+            receipt["release_baseline_reference"] = os.environ.get(
+                "ROCKSDB_RELEASE_BASELINE_RUN_URL"
             )
-        after_build = source_snapshot(source)
-        if after_build["tracked_source_hashes"] != baseline_source["tracked_source_hashes"]:
-            raise RuntimeError("baseline build changed one or more tracked source files")
-        receipt["source_after_baseline_build"] = after_build
-        receipt["baseline"] = {
-            "repro_matrix": run_repro_matrix(
-                receipt, base_repro, source, artifact_dir, log_dir, env, "baseline"
-            ),
-            "block_fixtures": fixture_manifest(
-                receipt, base_fixtures, source, artifact_dir, log_dir, env, "baseline"
-            ),
-            "old_sst": write_old_sst_fixtures(
-                receipt, base_compat, source, artifact_dir, log_dir, env
-            ),
-        }
-        receipt["baseline"]["status"] = "reproduction_confirmed"
-
-        if args.candidate_patch:
-            patch_path = resolve_helper_path(args.candidate_patch)
-            run_candidate(
+            run_focused_candidate_phase(
                 receipt,
                 source,
                 artifact_dir,
                 log_dir,
                 output_dir,
                 env,
-                patch_path,
-                args.run_focused_gtest,
+                tests_patch,
+                candidate_patch,
+                manifest_path,
             )
-        else:
-            if args.run_focused_gtest:
-                raise RuntimeError("focused gtest requires --candidate-patch")
-            receipt["candidate"] = {"status": "not_requested"}
+            receipt["status"] = "focused_candidate_checks_pass"
 
-        final_patch_paths = set(receipt.get("candidate", {}).get("expected_paths", []))
-        receipt["source_after"] = source_snapshot(source, final_patch_paths)
-        receipt["status"] = (
-            "candidate_checks_pass"
-            if receipt["candidate"]["status"] == "candidate_checks_pass"
-            else "baseline_reproduction_confirmed"
+        additional_paths = set(receipt.get("candidate", {}).get("expected_paths", []))
+        additional_paths.update(
+            receipt.get("tests_only_baseline", {}).get("expected_paths", [])
         )
+        receipt["source_after"] = source_snapshot(source, additional_paths)
     except Exception as error:  # Keep a structured receipt for every failed phase.
         receipt["errors"].append(f"{type(error).__name__}: {error}")
         receipt["status"] = "validation_failed"
         try:
-            receipt["source_after_failure"] = source_snapshot(source)
+            additional_paths = set(receipt.get("candidate", {}).get("expected_paths", []))
+            additional_paths.update(
+                receipt.get("tests_only_baseline", {}).get("expected_paths", [])
+            )
+            receipt["source_after_failure"] = source_snapshot(source, additional_paths)
         except Exception as snapshot_error:
             receipt["errors"].append(
                 f"source snapshot failed: {type(snapshot_error).__name__}: {snapshot_error}"
@@ -1584,6 +1645,7 @@ def main() -> int:
         json.dumps(
             {
                 "status": receipt["status"],
+                "phase": receipt.get("phase"),
                 "baseline": receipt.get("baseline", {}).get("status"),
                 "candidate": receipt.get("candidate", {}).get("status"),
                 "errors": receipt["errors"],
@@ -1592,7 +1654,10 @@ def main() -> int:
             sort_keys=True,
         )
     )
-    return 0 if receipt["status"] in {"baseline_reproduction_confirmed", "candidate_checks_pass"} else 1
+    return 0 if receipt["status"] in {
+        "baseline_reproduction_confirmed",
+        "focused_candidate_checks_pass",
+    } else 1
 
 
 if __name__ == "__main__":

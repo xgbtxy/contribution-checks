@@ -3,16 +3,14 @@ name: RocksDB issue 15439 validation
 on:
   workflow_dispatch:
     inputs:
-      candidate_patch:
-        description: Optional patch path inside this helper checkout; omit for the upstream baseline.
+      phase:
+        description: Release baseline only by default; focused test-only red and candidate debug green is separate.
         required: false
-        default: ""
-        type: string
-      run_focused_gtest:
-        description: After applying a candidate patch, build and run the focused DBBasicTest filter.
-        required: false
-        default: false
-        type: boolean
+        default: release-baseline
+        type: choice
+        options:
+          - release-baseline
+          - focused
 
 permissions:
   contents: read
@@ -20,7 +18,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.phase == 'focused' && 90 || 60 }}
     steps:
       - name: Checkout validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -55,16 +53,18 @@ jobs:
 
       - name: Run the attributed baseline and optional candidate checks
         env:
-          CANDIDATE_PATCH: ${{ inputs.candidate_patch }}
-          RUN_FOCUSED_GTEST: ${{ inputs.run_focused_gtest }}
+          RUN_PHASE: ${{ inputs.phase }}
+          ROCKSDB_RELEASE_BASELINE_RUN_URL: ${{ inputs.phase == 'focused' && 'https://github.com/xgbtxy/contribution-checks/actions/runs/41003363684' || '' }}
         run: |
           set -euo pipefail
-          args=()
-          if [[ -n "$CANDIDATE_PATCH" ]]; then
-            args+=(--candidate-patch "$CANDIDATE_PATCH")
-          fi
-          if [[ "$RUN_FOCUSED_GTEST" == "true" ]]; then
-            args+=(--run-focused-gtest)
+          phase="${RUN_PHASE:-release-baseline}"
+          args=(--phase "$phase")
+          if [[ "$phase" == "focused" ]]; then
+            args+=(
+              --tests-only-patch patches/rocksdb-prefix-15439/TESTS_ONLY.patch
+              --candidate-patch patches/rocksdb-prefix-15439/CANDIDATE.patch
+              --candidate-manifest patches/rocksdb-prefix-15439/candidate-manifest.json
+            )
           fi
           python3 run_rocksdb_prefix.py --source rocksdb --artifacts artifacts "${args[@]}"
 

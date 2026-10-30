@@ -1,0 +1,40 @@
+{
+  "captured_utc": "2026-10-30T04:16:30.211911+00:00",
+  "source_base": "87d442749a6a9f0fe5b9f07de7346466f8dd5acf",
+  "status": "staged_uncommitted_not_validated",
+  "files": {
+    "db/db_basic_test.cc": {
+      "git_blob": "b194f94b97e68564d08d580f149c05f12dd37c32",
+      "sha256_lf": "b5ffcda115be64460eba49adbf468049297d2b631abbb0280fc5adde2ec0d794",
+      "bytes": 280751
+    },
+    "table/block_based/block.cc": {
+      "git_blob": "d93657a73e2a8aba2f94be6ed12a5375a4d5dbdd",
+      "sha256_lf": "b6fcae8ba1a287a1c4a822f7cabb10aa6be440b2215f2befacc9b082fe55a782",
+      "bytes": 73018
+    },
+    "table/block_based/block.h": {
+      "git_blob": "3ebaea2c4ea699e9b802419485c4582534c56568",
+      "sha256_lf": "2f38f3c0669412ac7cd9f19dc8256d91eb767a7217a4c2a1e09b20d993195e99",
+      "bytes": 46610
+    },
+    "table/block_based/block_builder.cc": {
+      "git_blob": "7deac799883b526bf6e611ab8c3db247fd707564",
+      "sha256_lf": "8a34e635b5d4bd78075a735b4bc5bce51c43f2aafc12c66209d4a95bb3550c4a",
+      "bytes": 24740
+    },
+    "table/block_based/block_test.cc": {
+      "git_blob": "1eb2893eeff95fcce84959576a289b25e28d27a0",
+      "sha256_lf": "57c24f77a6de4dd99aac56ad327e939a158569d6d88b37fa29c04b5f18d714ee",
+      "bytes": 111619
+    },
+    "unreleased_history/bug_fixes/reverse_bytewise_common_prefix.md": {
+      "git_blob": "60c3e7034e7b2cb476829d87b01518e0ccd04337",
+      "sha256_lf": "2d75e66ac8abd3845136892ed510704e95ff2a4314357746153b7a5a019d99e8",
+      "bytes": 216
+    }
+  },
+  "candidate_patch_sha256": "d07005589ae390d7920e65f2dec308db2323328d67d86fdb21add0765676671d",
+  "tests_only_patch_sha256": "60bc850497623843b42f14f7ecd9d5c3a44876a4c1a19b3277def2a185475b61",
+  "legacy_fixture_validation": "Derived literals; pending byte-for-byte comparison against actual unmodified native writer"
+}
