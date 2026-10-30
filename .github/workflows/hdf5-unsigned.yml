@@ -1,4 +1,5 @@
 name: RocksDB issue 15439 validation
+run-name: "RocksDB 15439 / ${{ inputs.phase }}"
 
 on:
   workflow_dispatch:

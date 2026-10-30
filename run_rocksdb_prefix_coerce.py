@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -15,7 +17,7 @@ import run_rocksdb_prefix as shared
 
 
 SOURCE_PIN = "87d442749a6a9f0fe5b9f07de7346466f8dd5acf"
-CANDIDATE_SHA256 = "d07005589ae390d7920e65f2dec308db2323328d67d86fdb21add0765676671d"
+CANDIDATE_SHA256 = "cac9fade4b4bbb5c11fc0884e7febdd512734fe8c0a82d4678ab0a360b07cbd5"
 EXPECTED_PATHS = set(shared.EXPECTED_CANDIDATE_PATHS)
 BLOCK_CASES = sorted(shared.EXPECTED_BLOCK_GTESTS)
 DATABASE_CASES = [shared.FOCUSED_GTEST]
@@ -24,7 +26,6 @@ REPEAT_COUNT = 100
 WORKERS = 2
 PER_TEST_TIMEOUT_SECONDS = 60
 RUN_TIMEOUT_SECONDS = 10 * 60
-BUILD_TIMEOUT_SECONDS = 35 * 60
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "rocksdb-prefix-15439"
 FIXTURE_SOURCE_RUN = "https://github.com/xgbtxy/contribution-checks/actions/runs/41003363684"
 FIXTURE_SOURCE_ARTIFACT_ID = 12955321158
@@ -111,6 +112,61 @@ def copy_fixture_databases(artifact_dir: Path, source_inventory: dict) -> dict:
             "files_before_candidate_read": copied,
         }
     return inventory
+
+
+def coerce_compile_evidence(artifacts: Path, receipt: dict) -> dict:
+    """Check verbose C++ compile commands, since Make config omits this flag."""
+    build = receipt.get("commands", {}).get("coerce-debug-targets")
+    if not build or not build.get("ok"):
+        raise RuntimeError("coerce debug-build command receipt is missing or failed")
+    log = artifacts / build["stdout_log_gzip"]
+    required_sources = (
+        "db/db_basic_test.cc",
+        "table/block_based/block_test.cc",
+        "table/block_based/block_builder.cc",
+        "table/block_based/block.cc",
+    )
+    found = {name: [] for name in required_sources}
+    all_coerced_commands = []
+    with gzip.open(log, "rt", encoding="utf-8", errors="replace") as stream:
+        pending = ""
+        for line in stream:
+            pending += line.rstrip("\r\n").rstrip("\\") + " "
+            if line.rstrip().endswith("\\"):
+                continue
+            command = pending.replace("\\", "/")
+            pending = ""
+            if "-DCOERCE_CONTEXT_SWITCH" not in command or not re.search(r"(?:^|\s)-c(?:\s|$)", command):
+                continue
+            all_coerced_commands.append(command.strip())
+            for source in required_sources:
+                if source in command:
+                    found[source].append(command.strip())
+    missing = [source for source, commands in found.items() if not commands]
+    if missing:
+        raise RuntimeError(
+            "verbose build output has no -DCOERCE_CONTEXT_SWITCH compile command for "
+            f"{missing}; make_config.mk does not record this Makefile flag"
+        )
+    compiler_commands = sorted(all_coerced_commands)
+    signature_material = {
+        "source_pin": SOURCE_PIN,
+        "candidate_patch_sha256": CANDIDATE_SHA256,
+        "make_config_sha256": receipt["make_config"]["sha256"],
+        "compile_commands": compiler_commands,
+    }
+    signature = hashlib.sha256(
+        json.dumps(signature_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "coerce_macro_observed_in_compile_commands": True,
+        "required_source_command_counts": {source: len(commands) for source, commands in found.items()},
+        "coerced_compile_command_count": len(compiler_commands),
+        "sample_compile_commands": [commands[0][:1600] for commands in found.values()],
+        "compile_command_set_sha256": hashlib.sha256("\n".join(compiler_commands).encode("utf-8")).hexdigest(),
+        "coerce_evidence_sha256": signature,
+        "make_config_sha256": receipt["make_config"]["sha256"],
+    }
 
 
 def verify_fixture_sources_unchanged(original: dict) -> dict:
@@ -228,13 +284,14 @@ def main() -> int:
     shared.write_json(artifacts / "receipt.json", receipt)
     original_fixture_snapshot = None
     try:
-        receipt["runtime_metadata"] = shared.runtime_metadata(source)
+        receipt["runtime_metadata"] = shared.capture_runtime_metadata(source)
         env = shared.make_env()
         env.pop("ROCKSDB_DISABLE_SNAPPY", None)
         env["AUTO_CLEAN"] = "1"
         env["DEBUG_LEVEL"] = "1"
         env["NCORES"] = str(WORKERS)
         env["COERCE_CONTEXT_SWITCH"] = "1"
+        env["V"] = "1"
         log_dir = artifacts / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         candidate = verify_and_apply_candidate(
@@ -250,11 +307,13 @@ def main() -> int:
             receipt, source, log_dir, env, "coerce-debug-targets"
         )
         make_config = shared.make_config_facts(source)
-        selected_flags = "\n".join(make_config.get("selected_flag_lines", []))
-        if "-DCOERCE_CONTEXT_SWITCH" not in selected_flags:
-            raise RuntimeError("debug make_config does not record COERCE_CONTEXT_SWITCH")
         receipt["make_config"] = make_config
-        receipt["coerce_flag_verified"] = True
+        receipt["coerce_build_environment"] = {
+            "COERCE_CONTEXT_SWITCH": env["COERCE_CONTEXT_SWITCH"],
+            "DEBUG_LEVEL": env["DEBUG_LEVEL"],
+            "V": env["V"],
+        }
+        receipt["coerce_compile_evidence"] = coerce_compile_evidence(artifacts, receipt)
         receipt["post_build_source"] = verify_candidate_still_frozen(source, manifest)
 
         fixture_manifest, original_fixture_snapshot = verify_fixture_manifest()
@@ -364,7 +423,9 @@ def main() -> int:
         try:
             receipt["source_after_failure"] = {
                 "head": shared.git(source, "rev-parse", "HEAD"),
-                "status_paths": shared.source_status_paths(shared.git(source, "status", "--porcelain=v1")),
+                "status_paths": sorted(
+                    shared.source_status_paths(shared.git(source, "status", "--porcelain=v1"))
+                ),
             }
         except Exception as snapshot_error:
             receipt["errors"].append(
