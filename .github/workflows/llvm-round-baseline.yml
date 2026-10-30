@@ -1,0 +1,61 @@
+name: LLVM MLIR f32 round expansion baseline
+
+on:
+  push:
+    branches:
+      - validation/llvm-round-235156
+    paths:
+      - run_llvm_round_baseline.py
+      - .github/workflows/llvm-round-baseline.yml
+
+permissions:
+  contents: read
+
+jobs:
+  native-round-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Add the official apt.llvm.org LLVM 24 snapshot repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          curl --fail --location --silent --show-error \
+            https://apt.llvm.org/llvm-snapshot.gpg.key \
+            --output /tmp/llvm-snapshot.gpg.key
+          key_fingerprint="$(gpg --show-keys --with-colons /tmp/llvm-snapshot.gpg.key | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test "$key_fingerprint" = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
+          sudo install -d -m 0755 /usr/share/keyrings
+          sudo install -m 0644 /tmp/llvm-snapshot.gpg.key /usr/share/keyrings/llvm-snapshot-archive-keyring.asc
+          printf '%s\n' \
+            'deb [signed-by=/usr/share/keyrings/llvm-snapshot-archive-keyring.asc] https://apt.llvm.org/noble/ llvm-toolchain-noble main' \
+            | sudo tee /etc/apt/sources.list.d/llvm-toolchain-noble.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y llvm-24 llvm-24-tools mlir-24-tools
+          dpkg-query -W -f='${binary:Package}=${Version}\n' llvm-24 llvm-24-tools mlir-24-tools \
+            | tee artifacts/llvm-round-235156-packages.txt
+      - name: Run the native source-versus-expansion comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 run_llvm_round_baseline.py \
+            --output artifacts/llvm-round-235156 \
+            --mlir-opt /usr/lib/llvm-24/bin/mlir-opt \
+            --mlir-translate /usr/lib/llvm-24/bin/mlir-translate \
+            --llc /usr/lib/llvm-24/bin/llc \
+            --cc /usr/bin/cc
+      - name: Upload source, tools, commands, and native outputs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: llvm-mlir-round-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/llvm-round-235156/
+            artifacts/llvm-round-235156-packages.txt
+          if-no-files-found: error
+          retention-days: 14
