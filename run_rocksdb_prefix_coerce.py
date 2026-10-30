@@ -324,7 +324,7 @@ def main() -> int:
             "source_artifact_id": fixture_manifest["source_artifact_id"],
             "source_receipt_sha256": fixture_manifest["source_receipt_sha256"],
         }
-        receipt["old_sst"] = copy_fixture_databases(artifacts, fixture_manifest)
+        receipt["old_sst"] = copy_fixture_databases(artifacts, original_fixture_snapshot)
         old_sst_helper = shared.ROOT / "rocksdb_prefix_old_sst.cc"
         receipt["old_sst_reader_helper_source_sha256"] = sha256(old_sst_helper)
         (artifacts / "bin-temp").mkdir(parents=True, exist_ok=True)
