@@ -134,8 +134,8 @@ def main():
         partitioned = tvm.compile(schedule.mod, target="llvm")
 
         def run(compiled):
-            output = tvm.runtime.tensor(np.zeros(4, dtype="int32"))
-            compiled(tvm.runtime.tensor(data), output)
+            output = tvm_tirx.runtime.tensor(np.zeros(4, dtype="int32"))
+            compiled(tvm_tirx.runtime.tensor(data), output)
             return output.numpy().tolist()
 
         receipt["numpy"] = np.__version__
