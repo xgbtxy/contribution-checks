@@ -42,6 +42,13 @@ SOURCE_FILES = (
     "db/dbformat.h",
     "db/db_basic_test.cc",
 )
+HELPER_COMPILE_FLAGS = (
+    "-DNDEBUG",
+    "-fno-rtti",
+    "-DOS_LINUX",
+    "-DROCKSDB_PLATFORM_POSIX",
+    "-DROCKSDB_LIB_IO_POSIX",
+)
 HELPER_FILES = (
     ".github/workflows/rocksdb-prefix-15439.yml",
     "REPORTER-ATTRIBUTION.md",
@@ -260,6 +267,7 @@ def compile_program(
         "g++",
         "-std=c++20",
         "-O2",
+        *HELPER_COMPILE_FLAGS,
         "-Iinclude",
         "-I.",
         str(helper_source),
@@ -682,6 +690,7 @@ def main() -> int:
             "execution": "CPU-only",
             "make_jobs": 2,
             "debug_level": 0,
+            "helper_compile_flags": list(HELPER_COMPILE_FLAGS),
             "optional_features": DISABLED_OPTIONAL_FEATURES,
         },
         "helper_file_hashes": record_helper_hashes(),
