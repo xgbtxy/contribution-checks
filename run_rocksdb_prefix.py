@@ -515,7 +515,8 @@ def write_old_sst_fixtures(
     result = {}
     for mode in SCENARIOS:
         database = artifact_dir / "old-sst" / f"baseline-v8-{mode}"
-        database.parent.mkdir(parents=True, exist_ok=True)
+        # DestroyDB locks path/LOCK before it can remove an existing database.
+        database.mkdir(parents=True, exist_ok=True)
         run = run_command(
             receipt,
             f"baseline-create-old-sst-{mode}",
