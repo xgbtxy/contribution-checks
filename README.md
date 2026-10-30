@@ -16,6 +16,8 @@ Run `python run_baseline.py --self-check` to validate the hand-written oracles w
 
 The focused regression workflow applies the new upstream SLT tests to the unchanged source, verifies their two expected result mismatches, then applies the production patch and reruns the same SLT file. The candidate-checks workflow separately runs formatting and Clippy, extended workspace tests, the core and CLI tests, and the repository lint suite. Their receipts bind the tested source to the patch hashes in `patches/datafusion-26691.json`.
 
-## HDF5 h5diff unsigned validation
+## TVM #20823 CPU LLVM baseline
 
-`.github/workflows/hdf5-unsigned.yml` is a manual Ubuntu 24.04 check for HDF5 PR #6780. It validates the exact submitted commit and all changed Git blob IDs, runs the ten unsigned h5diff cases against the parent source and then the candidate, restores the candidate after the baseline phase, and runs the complete serial h5diff CTest suite. Receipts, JUnit files, and command logs are uploaded for seven days. The workflow does not schedule itself or rerun repository workflows.
+On this validation branch, `.github/workflows/hdf5-unsigned.yml` is a manual Ubuntu 24.04 baseline for Apache TVM issue #20823. It checks out source commit `2bf0532998d4dc7879cb342e873608b90c1d4497`, initializes the pinned TIRX/FFI dependency tree, and deliberately leaves the top-level CUTLASS and flash-attention submodules uninitialized because CUDA and CUTLASS are disabled. The CPU build uses LLVM 18, a 2 GiB ccache keyed by source, submodule and toolchain configuration, and a non-editable install of the pinned local tvm-ffi package.
+
+The direct reproducer requires the unpartitioned reduction to return `[45, 145, 245, 345]` and the unmodified `loop_partition([None, 3])` result to match the reported `[24, 54, 84, 114]`. It also runs the existing schedule-partition test module. The seven-day artifact contains the receipt and setup, configure, build, runtime and test logs. The workflow runs only by manual dispatch; the helper repository's default branch remains unchanged.

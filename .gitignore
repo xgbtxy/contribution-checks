@@ -1,3 +1,6 @@
 artifacts/
 datafusion/
+tvm/
+.venv/
+.ccache/
 __pycache__/

@@ -1,4 +1,4 @@
-name: HDF5 h5diff unsigned Linux validation
+name: TVM loop partition baseline
 
 on:
   workflow_dispatch:
@@ -6,33 +6,107 @@ on:
 permissions:
   contents: read
 
+env:
+  TVM_SOURCE_SHA: 2bf0532998d4dc7879cb342e873608b90c1d4497
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPILERCHECK: content
+
 jobs:
-  linux-lp64:
+  linux-llvm:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - name: Checkout validation harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
-      - name: Checkout the exact submitted HDF5 commit
+      - name: Checkout exact TVM source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: xgbtxy/hdf5
-          ref: da4aec7d78a0e3a0f1724262bd6c68d0c30eb3d3
-          path: hdf5
-          fetch-depth: 2
+          repository: apache/tvm
+          ref: ${{ env.TVM_SOURCE_SHA }}
+          path: tvm
+          fetch-depth: 1
           persist-credentials: false
 
-      - name: Validate HDF5 unsigned comparisons on LP64
-        run: python3 run_hdf5_unsigned.py --source hdf5 --manifest hdf5-unsigned-manifest.json --artifacts artifacts
+      - name: Initialize only pinned CPU build submodules
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          test "$(git -C tvm rev-parse HEAD)" = "$TVM_SOURCE_SHA"
+          git -C tvm submodule update --init --recursive 3rdparty/tvm-tirx
+          git -C tvm submodule status --recursive | tee artifacts/source-submodules.txt
+          test "$(git -C tvm/3rdparty/tvm-tirx rev-parse HEAD)" = 336af73223991bd5586efe528bd59f888c0efc46
+          test "$(git -C tvm/3rdparty/tvm-tirx/3rdparty/tvm-ffi rev-parse HEAD)" = dbdcdaceeef5b0b03251e8dea87725a1c1e2cde6
+          test "$(git -C tvm/3rdparty/tvm-tirx/3rdparty/tvm-ffi/3rdparty/dlpack rev-parse HEAD)" = 84d107bf416c6bab9ae68ad285876600d230490d
+          test "$(git -C tvm/3rdparty/tvm-tirx/3rdparty/tvm-ffi/3rdparty/libbacktrace rev-parse HEAD)" = 793921876c981ce49759114d7bb89bb89b2d3a2d
+          test -z "$(git -C tvm status --porcelain=v1)"
+          if grep -E '^[+U]' artifacts/source-submodules.txt; then
+            echo 'A checked-out submodule is not at its pinned revision.' >&2
+            exit 1
+          fi
 
-      - name: Upload source-bound logs and JUnit results
+      - name: Install LLVM 18 and hash toolchain configuration
+        id: toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential ccache cmake ninja-build llvm-18-dev python3-dev python3-venv zlib1g-dev zstd-dev libxml2-dev libffi-dev
+          test "$(llvm-config-18 --version | cut -d. -f1)" -ge 17
+          tool_config="$(gcc -dumpfullversion);$(cmake --version | sed -n '1p');$(ninja --version);$(llvm-config-18 --version);$(python3 --version);$(git -C tvm submodule status --recursive);Release;vendored-TIRX;LLVM18;CUDA-OFF;ccache-2G"
+          printf 'cache_key=%s\n' "$(printf '%s' "$tool_config" | sha256sum | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+          { printf 'source=%s\n' "$(git -C tvm rev-parse HEAD)"; printf '%s\n' "$tool_config"; ccache --version; } | tee artifacts/toolchain.log
+
+      - name: Restore source-and-toolchain ccache capped at 2 GiB
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: .ccache
+          key: tvm-loop-partition-${{ runner.os }}-${{ env.TVM_SOURCE_SHA }}-${{ steps.toolchain.outputs.cache_key }}-${{ hashFiles('run_tvm_loop_partition.py', '.github/workflows/hdf5-unsigned.yml') }}
+
+      - name: Install non-editable Python dependencies
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install numpy scipy ml_dtypes decorator typing_extensions cloudpickle psutil tornado pytest ./tvm/3rdparty/tvm-tirx/3rdparty/tvm-ffi 2>&1 | tee artifacts/python-dependencies.log
+
+      - name: Configure and build unmodified TVM with CPU LLVM
+        run: |
+          set -euo pipefail
+          ccache -M "$CCACHE_MAXSIZE"
+          ccache -z
+          cmake -S tvm -B tvm/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DTVM_USE_INSTALLED_TIRX=OFF \
+            -DTVM_TIRX_USE_LLVM=/usr/bin/llvm-config-18 \
+            -DTVM_TIRX_USE_CUDA=OFF \
+            -DTVM_TIRX_BUILD_TESTS=OFF \
+            -DTVM_USE_CUTLASS=OFF \
+            -DBUILD_TESTING=OFF 2>&1 | tee artifacts/cmake-configure.log
+          cmake --build tvm/build --parallel 2 2>&1 | tee artifacts/build.log
+          ccache --show-stats | tee artifacts/ccache-stats.log
+
+      - name: Reproduce issue and verify unpartitioned control
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tvm/python:${{ github.workspace }}/tvm/3rdparty/tvm-tirx/python:${{ github.workspace }}/tvm/.local/python
+          TVM_LIBRARY_PATH: ${{ github.workspace }}/tvm/build/lib
+          TVM_TIRX_LIBRARY_PATH: ${{ github.workspace }}/tvm/build/lib
+          PYTHONDONTWRITEBYTECODE: '1'
+          LLVM_CONFIG: /usr/bin/llvm-config-18
+        run: |
+          set -euo pipefail
+          .venv/bin/python run_tvm_loop_partition.py --source tvm --output artifacts/baseline.json 2>&1 | tee artifacts/reproduction.log
+          .venv/bin/python -m pytest -q -x tvm/tests/python/s_tir/schedule/test_tir_schedule_partition.py 2>&1 | tee artifacts/existing-partition-tests.log
+
+      - name: Upload source-bound logs and receipt
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: hdf5-unsigned-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          name: tvm-loop-partition-baseline-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 7
