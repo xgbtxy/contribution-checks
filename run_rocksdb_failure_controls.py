@@ -89,7 +89,7 @@ def run_case(source: Path, artifacts: Path, logs: Path, env: dict[str, str],
         source, logs, timeout=CASE_TIMEOUT + 10, env=test_env, expected_exit=None,
     )
     text = "\n".join(
-        gzip.decompress((artifacts / run[f"{stream}_log_gzip"]).read_bytes())
+        gzip.decompress((logs.parent / run[f"{stream}_log_gzip"]).read_bytes())
         .decode("utf-8", errors="replace")
         for stream in ("stdout", "stderr")
     )
