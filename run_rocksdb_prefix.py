@@ -86,6 +86,24 @@ HELPER_PLATFORM_FLAGS = (
 )
 RELEASE_HELPER_COMPILE_FLAGS = HELPER_PLATFORM_FLAGS + ("-DNDEBUG", "-fno-rtti")
 DEBUG_HELPER_COMPILE_FLAGS = HELPER_PLATFORM_FLAGS + ("-DROCKSDB_USE_RTTI",)
+
+
+def static_library_name(debug_level: int) -> str:
+    if debug_level == 0:
+        return "librocksdb.a"
+    if debug_level == 1:
+        return "librocksdb_debug.a"
+    raise ValueError(f"unsupported helper build mode: DEBUG_LEVEL={debug_level}")
+
+
+def helper_compile_flags_for_mode(debug_level: int) -> tuple[str, ...]:
+    if debug_level == 0:
+        return RELEASE_HELPER_COMPILE_FLAGS
+    if debug_level == 1:
+        return DEBUG_HELPER_COMPILE_FLAGS
+    raise ValueError(f"unsupported helper compile mode: DEBUG_LEVEL={debug_level}")
+
+
 HELPER_FILES = (
     ".github/workflows/hdf5-unsigned.yml",
     "REPORTER-ATTRIBUTION.md",
@@ -350,11 +368,12 @@ def build_static_library(receipt: dict, source: Path, log_dir: Path, env: dict[s
     )
     if not result["ok"]:
         raise RuntimeError(f"{name} failed or timed out")
-    library = source / "librocksdb.a"
+    library_name = static_library_name(0)
+    library = source / library_name
     if not library.is_file():
-        raise RuntimeError("static_lib succeeded but librocksdb.a is missing")
+        raise RuntimeError(f"static_lib succeeded but {library_name} is missing")
     receipt.setdefault("libraries", {})[name] = {
-        "path": "librocksdb.a",
+        "path": library_name,
         "bytes": library.stat().st_size,
         "sha256": sha256_file(library),
         "debug_level": "0",
@@ -390,9 +409,8 @@ def compile_program(
     debug_level: int = 0,
 ) -> Path:
     output = output_dir / name
-    compile_flags = (
-        DEBUG_HELPER_COMPILE_FLAGS if debug_level == 1 else RELEASE_HELPER_COMPILE_FLAGS
-    )
+    compile_flags = helper_compile_flags_for_mode(debug_level)
+    library_name = static_library_name(debug_level)
     command = [
         "g++",
         "-std=c++20",
@@ -401,7 +419,7 @@ def compile_program(
         "-Iinclude",
         "-I.",
         str(helper_source),
-        "librocksdb.a",
+        str(source / library_name),
         "-pthread",
         "-ldl",
         "-lrt",
@@ -1220,14 +1238,15 @@ def build_debug_targets(
         if flag in selected_flags:
             raise RuntimeError(f"unexpected optional codec in debug make_config: {flag}")
     receipt["make_config"] = config
-    for binary in ("librocksdb.a", "block_test", "db_basic_test"):
+    library_name = static_library_name(1)
+    for binary in (library_name, "block_test", "db_basic_test"):
         path = source / binary
         if not path.is_file():
             raise RuntimeError(f"debug build succeeded but {binary} is missing")
     receipt.setdefault("libraries", {})[name] = {
-        "path": "librocksdb.a",
-        "bytes": (source / "librocksdb.a").stat().st_size,
-        "sha256": sha256_file(source / "librocksdb.a"),
+        "path": library_name,
+        "bytes": (source / library_name).stat().st_size,
+        "sha256": sha256_file(source / library_name),
         "debug_level": "1",
         "test_binaries": {
             binary: sha256_file(source / binary)
@@ -1533,8 +1552,8 @@ def main() -> int:
             "make_jobs": 2,
             "debug_level": 0 if args.phase == "release-baseline" else 1,
             "helper_compile_flags": {
-                "release": list(RELEASE_HELPER_COMPILE_FLAGS),
-                "debug": list(DEBUG_HELPER_COMPILE_FLAGS),
+                "release": list(helper_compile_flags_for_mode(0)),
+                "debug": list(helper_compile_flags_for_mode(1)),
             },
             "optional_features": DISABLED_OPTIONAL_FEATURES,
             "enabled_required_features": ENABLED_REQUIRED_FEATURES,

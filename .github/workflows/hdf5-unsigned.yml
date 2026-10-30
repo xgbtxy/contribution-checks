@@ -11,6 +11,7 @@ on:
         options:
           - release-baseline
           - focused
+          - benchmark
 
 permissions:
   contents: read
@@ -18,7 +19,13 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.phase == 'focused' && 90 || 60 }}
+    timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-rocksdb
+      CCACHE_BASEDIR: ${{ github.workspace }}/rocksdb
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 2G
+      PORTABLE: "1"
     steps:
       - name: Checkout validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -37,19 +44,24 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Install Snappy development dependency if missing
+      - name: Install Snappy and the compiler cache
         run: |
           set -euo pipefail
-          if ! dpkg-query -W -f='${Status}' libsnappy-dev 2>/dev/null | grep -q 'install ok installed'; then
-            sudo apt-get update -qq >/tmp/rocksdb-snappy-install.log 2>&1
-            sudo apt-get install -y libsnappy-dev >>/tmp/rocksdb-snappy-install.log 2>&1
-            tail -n 20 /tmp/rocksdb-snappy-install.log > artifacts/logs/snappy-install-tail.log
-          fi
+          sudo apt-get update -qq > artifacts/logs/dependency-install.log 2>&1
+          sudo apt-get install -y --no-install-recommends libsnappy-dev ccache >> artifacts/logs/dependency-install.log 2>&1
+          echo /usr/lib/ccache >> "$GITHUB_PATH"
           if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists snappy; then
             pkg-config --modversion snappy > artifacts/logs/snappy-version.log
           else
             dpkg-query -W -f='${Package} ${Version}\n' libsnappy-dev > artifacts/logs/snappy-version.log
           fi
+
+      - name: Restore compiler cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: rocksdb-87d4427-${{ inputs.phase }}-gcc13-portable-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: rocksdb-87d4427-${{ inputs.phase }}-gcc13-portable-v1-
 
       - name: Run the attributed baseline and optional candidate checks
         env:
@@ -58,6 +70,10 @@ jobs:
         run: |
           set -euo pipefail
           phase="${RUN_PHASE:-release-baseline}"
+          if [[ "$phase" == "benchmark" ]]; then
+            python3 run_rocksdb_prefix_benchmark.py --source rocksdb --artifacts artifacts
+            exit 0
+          fi
           args=(--phase "$phase")
           if [[ "$phase" == "focused" ]]; then
             args+=(
@@ -67,6 +83,20 @@ jobs:
             )
           fi
           python3 run_rocksdb_prefix.py --source rocksdb --artifacts artifacts "${args[@]}"
+
+      - name: Record compiler cache statistics
+        if: always()
+        run: |
+          if command -v ccache >/dev/null; then
+            ccache --show-stats > artifacts/logs/compiler-cache.txt
+          fi
+
+      - name: Save completed compiler outputs for retries
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: rocksdb-87d4427-${{ inputs.phase }}-gcc13-portable-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload compact logs, raw block fixtures, and old SSTs
         if: always()
