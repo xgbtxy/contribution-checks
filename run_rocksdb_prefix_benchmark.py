@@ -232,7 +232,7 @@ def main() -> int:
             "library_sha256": candidate_lib, "make_config": candidate_config,
             "debug_level": 0, "make_jobs": 2,
         }
-        candidate_meta, candidate_rows = compile_and_run(
+        candidate_binary, candidate_meta, candidate_rows = compile_and_run(
             receipt, source, bins, logs, env, "candidate", candidate_lib,
             manifest["candidate_patch_sha256"], args.iterations, artifacts,
         )
