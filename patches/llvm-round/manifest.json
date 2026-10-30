@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at_utc": "2026-10-30T01:33:47.926464+00:00",
+  "created_at_utc": "2026-10-30T02:54:50.675907+00:00",
   "source_repository": "https://github.com/llvm/llvm-project",
   "base_commit": "cc17c75d47aff09d841471b9309750ecaabe3122",
   "patches": {
@@ -11,7 +11,7 @@
       ]
     },
     "tests.patch": {
-      "sha256": "498fc6a8233b8f084feb576bd7c5d799417a22a6608338dc750442b5afd5dc0d",
+      "sha256": "65d672e2d063c6f8f61fcc6968827a4408a7f3e1e30a800d5e7dfa02898d5efa",
       "paths": [
         "mlir/test/Dialect/Math/expand-math.mlir"
       ]
@@ -27,8 +27,8 @@
     "mlir/test/Dialect/Math/expand-math.mlir": {
       "group": "tests",
       "original_sha256": "9911b1373fffdaaf0e4150ed3c10d7df138bc99040dc8366e64e837db8ae5504",
-      "candidate_sha256": "05f080d9aeb246beb1aa5350b75e3a0d2eb14f936e81755cbbb29da2ec3c6d25",
-      "candidate_bytes": 54452
+      "candidate_sha256": "a03c43d2f481c0ae1dc3fcf46e7182e3f098f3a4fe7c474ef54f4dbb08b98135",
+      "candidate_bytes": 54455
     }
   },
   "candidate_kind": "Uncommitted AI-assisted candidate, not submitted for upstream review"

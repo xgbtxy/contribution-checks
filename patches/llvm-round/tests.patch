@@ -1,5 +1,5 @@
 diff --git a/mlir/test/Dialect/Math/expand-math.mlir b/mlir/test/Dialect/Math/expand-math.mlir
-index 84b0bb0aa..c5c794d10 100644
+index 84b0bb0aa..2469f811d 100644
 --- a/mlir/test/Dialect/Math/expand-math.mlir
 +++ b/mlir/test/Dialect/Math/expand-math.mlir
 @@ -235,16 +235,19 @@ func.func @roundf_func(%a: f32) -> f32 {
@@ -32,7 +32,7 @@ index 84b0bb0aa..c5c794d10 100644
 +// CHECK-LABEL: func @roundf_func_vector
 +// CHECK-SAME: (%[[ARG:.*]]: vector<4xf32>) -> vector<4xf32>
 +func.func @roundf_func_vector(%arg: vector<4xf32>) -> vector<4xf32> {
-+  // CHECK: arith.cmpi slt {{.*}}, {{.*}} : vector<4xi32>
++  // CHECK: arith.cmpi slt, {{.*}}, {{.*}} : vector<4xi32>
 +  // CHECK: arith.select {{.*}} : vector<4xi1>, vector<4xf32>
 +  %ret = math.round %arg : vector<4xf32>
 +  return %ret : vector<4xf32>
@@ -43,7 +43,7 @@ index 84b0bb0aa..c5c794d10 100644
 +// CHECK-LABEL: func @roundf_func_tensor
 +// CHECK-SAME: (%[[ARG:.*]]: tensor<4xf32>) -> tensor<4xf32>
 +func.func @roundf_func_tensor(%arg: tensor<4xf32>) -> tensor<4xf32> {
-+  // CHECK: arith.cmpi slt {{.*}}, {{.*}} : tensor<4xi32>
++  // CHECK: arith.cmpi slt, {{.*}}, {{.*}} : tensor<4xi32>
 +  // CHECK: arith.select {{.*}} : tensor<4xi1>, tensor<4xf32>
 +  %ret = math.round %arg : tensor<4xf32>
 +  return %ret : tensor<4xf32>
@@ -80,7 +80,7 @@ index 84b0bb0aa..c5c794d10 100644
 +// CHECK-DAG:       arith.constant -1 : i32
  // CHECK-DAG:       tensor.dim %[[ARG]]
  // CHECK:           tensor.splat %{{.*}}[%{{.*}}] : tensor<?xf32>
-+// CHECK:           arith.cmpi slt {{.*}}, {{.*}} : tensor<?xi32>
++// CHECK:           arith.cmpi slt, {{.*}}, {{.*}} : tensor<?xi32>
 +// CHECK:           arith.select {{.*}} : tensor<?xi1>, tensor<?xf32>
  // CHECK-NOT:       math.round
  // CHECK:           return %{{.*}} : tensor<?xf32>
