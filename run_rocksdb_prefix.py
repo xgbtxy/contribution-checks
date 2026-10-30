@@ -187,7 +187,7 @@ def git(source: Path, *args: str) -> str:
         encoding="utf-8",
         errors="replace",
     )
-    return result.stdout.strip()
+    return result.stdout.rstrip("\r\n")
 
 
 def tail(data: bytes, count: int = 30) -> list[str]:
