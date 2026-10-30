@@ -50,7 +50,7 @@ HELPER_COMPILE_FLAGS = (
     "-DROCKSDB_LIB_IO_POSIX",
 )
 HELPER_FILES = (
-    ".github/workflows/rocksdb-prefix-15439.yml",
+    ".github/workflows/hdf5-unsigned.yml",
     "REPORTER-ATTRIBUTION.md",
     "report-15439-repro.cc",
     "rocksdb_prefix_block_fixtures.cc",

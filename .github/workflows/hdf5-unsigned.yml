@@ -1,38 +1,64 @@
-name: HDF5 h5diff unsigned Linux validation
+name: RocksDB issue 15439 validation
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate_patch:
+        description: Optional patch path inside this helper checkout; omit for the upstream baseline.
+        required: false
+        default: ""
+        type: string
+      run_focused_gtest:
+        description: After applying a candidate patch, build and run the focused DBBasicTest filter.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
-  linux-lp64:
+  validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - name: Checkout validation harness
+      - name: Checkout validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
-      - name: Checkout the exact submitted HDF5 commit
+      - name: Create small artifact workspace
+        run: mkdir -p artifacts/logs artifacts/fixtures artifacts/old-sst
+
+      - name: Checkout RocksDB at the reviewed upstream main SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: xgbtxy/hdf5
-          ref: da4aec7d78a0e3a0f1724262bd6c68d0c30eb3d3
-          path: hdf5
-          fetch-depth: 2
+          repository: meta/rocksdb
+          ref: 87d442749a6a9f0fe5b9f07de7346466f8dd5acf
+          path: rocksdb
+          fetch-depth: 1
           persist-credentials: false
 
-      - name: Validate HDF5 unsigned comparisons on LP64
-        run: python3 run_hdf5_unsigned.py --source hdf5 --manifest hdf5-unsigned-manifest.json --artifacts artifacts
+      - name: Run the attributed baseline and optional candidate checks
+        env:
+          CANDIDATE_PATCH: ${{ inputs.candidate_patch }}
+          RUN_FOCUSED_GTEST: ${{ inputs.run_focused_gtest }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$CANDIDATE_PATCH" ]]; then
+            args+=(--candidate-patch "$CANDIDATE_PATCH")
+          fi
+          if [[ "$RUN_FOCUSED_GTEST" == "true" ]]; then
+            args+=(--run-focused-gtest)
+          fi
+          python3 run_rocksdb_prefix.py --source rocksdb --artifacts artifacts "${args[@]}"
 
-      - name: Upload source-bound logs and JUnit results
+      - name: Upload compact logs, raw block fixtures, and old SSTs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: hdf5-unsigned-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          name: rocksdb-prefix-15439-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 7
