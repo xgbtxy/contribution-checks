@@ -18,6 +18,7 @@
 """Run the TVM #20823 reduction reproducer and unpartitioned control."""
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -66,9 +67,9 @@ def check_build(source):
     llvm = entries.get("TVM_TIRX_USE_LLVM", "")
     if "llvm-config-18" not in llvm or not Path(llvm).exists():
         raise RuntimeError(f"LLVM 18 not configured: {llvm!r}")
-    python = Path(sys.executable).resolve()
+    python = Path(sys.executable).absolute()
     for name in ("Python_EXECUTABLE", "Python3_EXECUTABLE"):
-        if Path(entries.get(name, "")).resolve() != python:
+        if Path(entries.get(name, "")).absolute() != python:
             raise RuntimeError(f"{name} does not match test interpreter {python}")
     return {**required, "TVM_TIRX_USE_LLVM": llvm, "Python_EXECUTABLE": str(python), "Python3_EXECUTABLE": str(python)}
 
@@ -98,10 +99,28 @@ def main():
 
         import numpy as np
         import tvm
+        import tvm_tirx
+        import tvm_ffi
+        from tvm import base as tvm_base
+        from tvm_tirx import base as tirx_base
         from tvm import s_tir, te
 
         if not Path(tvm.__file__).resolve().is_relative_to(source / "python"):
             raise RuntimeError(f"TVM did not import from source: {tvm.__file__}")
+        if not Path(tvm_tirx.__file__).resolve().is_relative_to(source / "3rdparty/tvm-tirx/python"):
+            raise RuntimeError(f"TIRX did not import from pinned source: {tvm_tirx.__file__}")
+        if tvm_base._RUNTIME_ONLY or tirx_base._RUNTIME_ONLY:
+            raise RuntimeError("The compiler libraries are required for this baseline")
+        receipt["imports"] = {"tvm": tvm.__file__, "tvm_tirx": tvm_tirx.__file__, "tvm_ffi": tvm_ffi.__file__}
+        receipt["native_libraries"] = {}
+        for owner, base in (("tvm", tvm_base), ("tirx", tirx_base)):
+            for name, library in base._LOADED_LIBS.items():
+                path = Path(library._name).resolve()
+                if not path.is_relative_to(expected_lib):
+                    raise RuntimeError(f"Loaded another build's {name}: {path}")
+                receipt["native_libraries"][f"{owner}/{name}"] = {
+                    "path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()
+                }
         data = np.arange(40, dtype="int32").reshape(4, 10)
         a = te.placeholder((4, 10), "int32", name="A")
         k = te.reduce_axis((0, 10), name="k")
@@ -110,6 +129,8 @@ def main():
         schedule = s_tir.Schedule(te.create_function([a, s]))
         _, loop = schedule.get_loops(schedule.get_sblock("S"))
         schedule.loop_partition(loop, factors=[None, 3])
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        (args.output.parent / "partitioned.ir.txt").write_text(str(schedule.mod))
         partitioned = tvm.compile(schedule.mod, target="llvm")
 
         def run(compiled):
@@ -126,14 +147,14 @@ def main():
         if after != before:
             raise RuntimeError(f"Source changed during validation: {after}")
         receipt["source_after"] = after
-        receipt["status"] = "passed"
+        receipt["status"] = "baseline_bug_confirmed"
     except Exception as exc:
         receipt["error"] = f"{type(exc).__name__}: {exc}"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps(receipt, indent=2))
-    return 0 if receipt["status"] == "passed" else 1
+    return 0 if receipt["status"] == "baseline_bug_confirmed" else 1
 
 
 if __name__ == "__main__":
