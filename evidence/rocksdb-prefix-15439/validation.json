@@ -1,0 +1,52 @@
+{
+  "verified_utc": "2026-10-30T11:22:05.179031+00:00",
+  "project": "meta/rocksdb",
+  "issue": 15439,
+  "source_base": "87d442749a6a9f0fe5b9f07de7346466f8dd5acf",
+  "product_commit": "181015bfd9c08109f043241183365bbed46e6008",
+  "candidate_patch_sha256": "cac9fade4b4bbb5c11fc0884e7febdd512734fe8c0a82d4678ab0a360b07cbd5",
+  "candidate_git_blobs": {
+    "db/db_basic_test.cc": "b194f94b97e68564d08d580f149c05f12dd37c32",
+    "table/block_based/block.cc": "0ecaa70ae641564ec90a1e9d3289676769d23a35",
+    "table/block_based/block.h": "bd34a75346dd398fd4dad050999449db084cfc46",
+    "table/block_based/block_builder.cc": "7deac799883b526bf6e611ab8c3db247fd707564",
+    "table/block_based/block_test.cc": "73739c8e25153cb2e88393518271bf08c0b5512a",
+    "unreleased_history/bug_fixes/reverse_bytewise_common_prefix.md": "60c3e7034e7b2cb476829d87b01518e0ccd04337"
+  },
+  "full_normal_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41041641202",
+  "workflow_conclusion": "failure_after_native_success",
+  "collector_error": "Make banners around valid progress JSON; raw logs independently revalidated",
+  "native_make_exit": 0,
+  "native_jobs_succeeded": 1054,
+  "gtest_final_summary_passes": 44166,
+  "gtest_shard_summaries": 1049,
+  "new_regressions_passed": [
+    "BlockCommonPrefixTest.PrefixDoesNotIncludeInternalKeyFooter",
+    "BlockCommonPrefixTest.LegacyDataBlocksPreserveSeekAndIteration",
+    "BlockCommonPrefixTest.LegacyInternalKeyIndexBlockPreservesSeek",
+    "DBBasicTest.ReverseBytewiseCommonPrefixKeepsLatestValueVisible"
+  ],
+  "prechecks": {
+    "check_buck_targets": 0,
+    "check_c_api_gen": 0,
+    "check_format": 0,
+    "check_sources": 0,
+    "check_workflow_yaml": 0,
+    "format_auto": 0
+  },
+  "native_log_archive_sha256": "0820b59f7d39198492f214b6ff74eb6dfad1f89ac7f40253721ebfd6043cc07e",
+  "focused_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41013465903",
+  "coerce_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41029121159",
+  "coerce_passes": 400,
+  "benchmark_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41015185045",
+  "benchmark_rows_per_stage": 24,
+  "status_full_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41015199917",
+  "status_full_result": "failed",
+  "status_control_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41042734544",
+  "status_control_outcomes_each_revision": {
+    "abort_or_signal": 14,
+    "assertion_failure": 9,
+    "passed": 6
+  },
+  "status_control_limit": "Two Basic recovery cases have different abort sites; no claim that this full mode passed."
+}

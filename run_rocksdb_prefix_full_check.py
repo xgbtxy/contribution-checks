@@ -552,10 +552,14 @@ def make_progress(source: Path, env: dict[str, str]) -> dict:
     except (OSError, subprocess.TimeoutExpired) as error:
         return {"exit_code": None, "raw": f"progress probe failed: {error}", "json": None}
     text = (result.stdout + result.stderr).strip()
-    try:
-        progress = json.loads(result.stdout.strip())
-    except (json.JSONDecodeError, TypeError):
-        progress = None
+    progress = None
+    for line in result.stdout.splitlines():
+        try:
+            candidate = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(candidate, dict) and "status" in candidate:
+            progress = candidate
     return {"exit_code": result.returncode, "raw": text[-4000:], "json": progress}
 
 
