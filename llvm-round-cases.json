@@ -1,0 +1,335 @@
+{
+  "oracle": "Exact integer significand and power-of-two denominator; floor(abs(x)+1/2), then restore sign. For zero preserve sign; for infinities preserve bits; NaN payload is not constrained.",
+  "cases": [
+    {
+      "name": "positive-zero",
+      "input_bits": 0,
+      "expected_bits": 0
+    },
+    {
+      "name": "negative-zero",
+      "input_bits": 2147483648,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "f32-00000001",
+      "input_bits": 1,
+      "expected_bits": 0
+    },
+    {
+      "name": "f32-80000001",
+      "input_bits": 2147483649,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "f32-007fffff",
+      "input_bits": 8388607,
+      "expected_bits": 0
+    },
+    {
+      "name": "f32-807fffff",
+      "input_bits": 2155872255,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "f32-00800000",
+      "input_bits": 8388608,
+      "expected_bits": 0
+    },
+    {
+      "name": "f32-80800000",
+      "input_bits": 2155872256,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "f32-3e800000",
+      "input_bits": 1048576000,
+      "expected_bits": 0
+    },
+    {
+      "name": "f32-be800000",
+      "input_bits": 3196059648,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "f32-3efffffe",
+      "input_bits": 1056964606,
+      "expected_bits": 0
+    },
+    {
+      "name": "f32-befffffe",
+      "input_bits": 3204448254,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "positive-half-predecessor",
+      "input_bits": 1056964607,
+      "expected_bits": 0
+    },
+    {
+      "name": "negative-half-predecessor",
+      "input_bits": 3204448255,
+      "expected_bits": 2147483648
+    },
+    {
+      "name": "positive-half-tie",
+      "input_bits": 1056964608,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "negative-half-tie",
+      "input_bits": 3204448256,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3f000001",
+      "input_bits": 1056964609,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "f32-bf000001",
+      "input_bits": 3204448257,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3f000002",
+      "input_bits": 1056964610,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "f32-bf000002",
+      "input_bits": 3204448258,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3f7fffff",
+      "input_bits": 1065353215,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "f32-bf7fffff",
+      "input_bits": 3212836863,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3f800000",
+      "input_bits": 1065353216,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "f32-bf800000",
+      "input_bits": 3212836864,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3f800001",
+      "input_bits": 1065353217,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "f32-bf800001",
+      "input_bits": 3212836865,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3fbfffff",
+      "input_bits": 1069547519,
+      "expected_bits": 1065353216
+    },
+    {
+      "name": "f32-bfbfffff",
+      "input_bits": 3217031167,
+      "expected_bits": 3212836864
+    },
+    {
+      "name": "f32-3fc00000",
+      "input_bits": 1069547520,
+      "expected_bits": 1073741824
+    },
+    {
+      "name": "f32-bfc00000",
+      "input_bits": 3217031168,
+      "expected_bits": 3221225472
+    },
+    {
+      "name": "f32-3fc00001",
+      "input_bits": 1069547521,
+      "expected_bits": 1073741824
+    },
+    {
+      "name": "f32-bfc00001",
+      "input_bits": 3217031169,
+      "expected_bits": 3221225472
+    },
+    {
+      "name": "f32-401fffff",
+      "input_bits": 1075838975,
+      "expected_bits": 1073741824
+    },
+    {
+      "name": "f32-c01fffff",
+      "input_bits": 3223322623,
+      "expected_bits": 3221225472
+    },
+    {
+      "name": "f32-40200000",
+      "input_bits": 1075838976,
+      "expected_bits": 1077936128
+    },
+    {
+      "name": "f32-c0200000",
+      "input_bits": 3223322624,
+      "expected_bits": 3225419776
+    },
+    {
+      "name": "f32-40200001",
+      "input_bits": 1075838977,
+      "expected_bits": 1077936128
+    },
+    {
+      "name": "f32-c0200001",
+      "input_bits": 3223322625,
+      "expected_bits": 3225419776
+    },
+    {
+      "name": "f32-405fffff",
+      "input_bits": 1080033279,
+      "expected_bits": 1077936128
+    },
+    {
+      "name": "f32-c05fffff",
+      "input_bits": 3227516927,
+      "expected_bits": 3225419776
+    },
+    {
+      "name": "f32-40600000",
+      "input_bits": 1080033280,
+      "expected_bits": 1082130432
+    },
+    {
+      "name": "f32-c0600000",
+      "input_bits": 3227516928,
+      "expected_bits": 3229614080
+    },
+    {
+      "name": "f32-4affffff",
+      "input_bits": 1258291199,
+      "expected_bits": 1258291200
+    },
+    {
+      "name": "f32-caffffff",
+      "input_bits": 3405774847,
+      "expected_bits": 3405774848
+    },
+    {
+      "name": "f32-4b000000",
+      "input_bits": 1258291200,
+      "expected_bits": 1258291200
+    },
+    {
+      "name": "f32-cb000000",
+      "input_bits": 3405774848,
+      "expected_bits": 3405774848
+    },
+    {
+      "name": "f32-4b000001",
+      "input_bits": 1258291201,
+      "expected_bits": 1258291201
+    },
+    {
+      "name": "f32-cb000001",
+      "input_bits": 3405774849,
+      "expected_bits": 3405774849
+    },
+    {
+      "name": "f32-4b7fffff",
+      "input_bits": 1266679807,
+      "expected_bits": 1266679807
+    },
+    {
+      "name": "f32-cb7fffff",
+      "input_bits": 3414163455,
+      "expected_bits": 3414163455
+    },
+    {
+      "name": "f32-4b800000",
+      "input_bits": 1266679808,
+      "expected_bits": 1266679808
+    },
+    {
+      "name": "f32-cb800000",
+      "input_bits": 3414163456,
+      "expected_bits": 3414163456
+    },
+    {
+      "name": "f32-4f000000",
+      "input_bits": 1325400064,
+      "expected_bits": 1325400064
+    },
+    {
+      "name": "f32-cf000000",
+      "input_bits": 3472883712,
+      "expected_bits": 3472883712
+    },
+    {
+      "name": "f32-5effffff",
+      "input_bits": 1593835519,
+      "expected_bits": 1593835519
+    },
+    {
+      "name": "f32-deffffff",
+      "input_bits": 3741319167,
+      "expected_bits": 3741319167
+    },
+    {
+      "name": "f32-5f000000",
+      "input_bits": 1593835520,
+      "expected_bits": 1593835520
+    },
+    {
+      "name": "f32-df000000",
+      "input_bits": 3741319168,
+      "expected_bits": 3741319168
+    },
+    {
+      "name": "f32-5f000001",
+      "input_bits": 1593835521,
+      "expected_bits": 1593835521
+    },
+    {
+      "name": "f32-df000001",
+      "input_bits": 3741319169,
+      "expected_bits": 3741319169
+    },
+    {
+      "name": "f32-7f7fffff",
+      "input_bits": 2139095039,
+      "expected_bits": 2139095039
+    },
+    {
+      "name": "f32-ff7fffff",
+      "input_bits": 4286578687,
+      "expected_bits": 4286578687
+    },
+    {
+      "name": "f32-7f800000",
+      "input_bits": 2139095040,
+      "expected_bits": 2139095040
+    },
+    {
+      "name": "f32-ff800000",
+      "input_bits": 4286578688,
+      "expected_bits": 4286578688
+    },
+    {
+      "name": "f32-7fc00000",
+      "input_bits": 2143289344,
+      "expected_kind": "nan"
+    },
+    {
+      "name": "f32-ffc00000",
+      "input_bits": 4290772992,
+      "expected_kind": "nan"
+    }
+  ]
+}

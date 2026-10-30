@@ -1,0 +1,34 @@
+diff --git a/mlir/lib/Dialect/Math/Transforms/ExpandOps.cpp b/mlir/lib/Dialect/Math/Transforms/ExpandOps.cpp
+index 41816abf0..b48dec5f9 100644
+--- a/mlir/lib/Dialect/Math/Transforms/ExpandOps.cpp
++++ b/mlir/lib/Dialect/Math/Transforms/ExpandOps.cpp
+@@ -544,10 +544,9 @@ static LogicalResult convertRoundOp(math::RoundOp op,
+ 
+   Value incrValue = math::CopySignOp::create(b, half, operand);
+   Value add = arith::AddFOp::create(b, opType, operand, incrValue);
+-  Value fpFixedConvert = createTruncatedFPValue(add, b);
+ 
+-  // There are three cases where adding 0.5 to the value and truncating by
+-  // converting to an i64 does not result in the correct behavior:
++  // The final result must select the original operand for these special or
++  // large values:
+   //
+   // 1. Special values: +-inf and +-nan
+   //     Casting these special values to i64 has undefined behavior. To identify
+@@ -570,6 +569,16 @@ static LogicalResult convertRoundOp(math::RoundOp op,
+   Value operandExp = arith::AndIOp::create(
+       b, arith::ShRUIOp::create(b, operandBitcast, c23), expMask);
+   Value operandBiasedExp = arith::SubIOp::create(b, operandExp, c127);
++
++  // For |x| < 0.5, select the unmodified operand for truncation: adding the
++  // signed half can round a half-predecessor to +/-1.0.
++  Value cNeg1 = createIntConst(loc, i32Ty, -1, b, operand);
++  Value isSmallerThanHalf = arith::CmpIOp::create(b, arith::CmpIPredicate::slt,
++                                                  operandBiasedExp, cNeg1);
++  Value truncationInput =
++      arith::SelectOp::create(b, isSmallerThanHalf, operand, add);
++  Value fpFixedConvert = createTruncatedFPValue(truncationInput, b);
++
+   Value isSpecialValOrLargeVal = arith::CmpIOp::create(
+       b, arith::CmpIPredicate::sge, operandBiasedExp, c23);
+ 

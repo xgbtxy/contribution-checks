@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-30T01:33:47.926464+00:00",
+  "source_repository": "https://github.com/llvm/llvm-project",
+  "base_commit": "cc17c75d47aff09d841471b9309750ecaabe3122",
+  "patches": {
+    "production.patch": {
+      "sha256": "608713cc940e4b4fb1a35d9d8e46faf09fcecf7d230fc6584375c05f2c389564",
+      "paths": [
+        "mlir/lib/Dialect/Math/Transforms/ExpandOps.cpp"
+      ]
+    },
+    "tests.patch": {
+      "sha256": "498fc6a8233b8f084feb576bd7c5d799417a22a6608338dc750442b5afd5dc0d",
+      "paths": [
+        "mlir/test/Dialect/Math/expand-math.mlir"
+      ]
+    }
+  },
+  "files": {
+    "mlir/lib/Dialect/Math/Transforms/ExpandOps.cpp": {
+      "group": "production",
+      "original_sha256": "3ace7146b3ba7ab02b1adb1544f49f372a6abc554ba94cb0a3618adbd8ab968d",
+      "candidate_sha256": "5ba73ceffa70bd5cc4e00a84a440611b72477972d3e0e3c27340cfd59c25afba",
+      "candidate_bytes": 36537
+    },
+    "mlir/test/Dialect/Math/expand-math.mlir": {
+      "group": "tests",
+      "original_sha256": "9911b1373fffdaaf0e4150ed3c10d7df138bc99040dc8366e64e837db8ae5504",
+      "candidate_sha256": "05f080d9aeb246beb1aa5350b75e3a0d2eb14f936e81755cbbb29da2ec3c6d25",
+      "candidate_bytes": 54452
+    }
+  },
+  "candidate_kind": "Uncommitted AI-assisted candidate, not submitted for upstream review"
+}
