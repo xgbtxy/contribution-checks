@@ -72,7 +72,10 @@ jobs:
           set -euo pipefail
           python3 -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install numpy scipy ml_dtypes decorator typing_extensions cloudpickle psutil tornado pytest ./tvm/3rdparty/tvm-tirx/3rdparty/tvm-ffi 2>&1 | tee artifacts/python-dependencies.log
+          .venv/bin/python -m pip install numpy scipy ml_dtypes decorator typing_extensions cloudpickle psutil tornado pytest 'apache-tvm-ffi-orcjit>=0.1.3' ./tvm/3rdparty/tvm-tirx/3rdparty/tvm-ffi 2>&1 | tee artifacts/python-dependencies.log
+          .venv/bin/python -m pip freeze > artifacts/python-packages.txt
+          uname -a > artifacts/host.txt
+          llvm-config-18 --host-target >> artifacts/host.txt
 
       - name: Configure and build unmodified TVM with CPU LLVM
         run: |
