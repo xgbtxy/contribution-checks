@@ -38,6 +38,7 @@ jobs:
             mlir
             cmake
             third-party
+            libc
       - name: Install official LLVM24 lowering tools and source build prerequisites
         run: |
           set -euo pipefail
