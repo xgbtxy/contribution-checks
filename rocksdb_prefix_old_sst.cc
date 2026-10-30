@@ -122,8 +122,12 @@ bool ReadOldSst(const std::string& path, const std::string& mode) {
   const bool seek_ok = expect_found
                            ? seek_is_target && iterator->value().compare(
                                                    Slice(expected)) == 0
-                           : !seek_is_target;
+                           : !iterator->Valid();
   const bool seek_status_ok = iterator->status().ok();
+  const std::string observed_seek_key =
+      iterator->Valid() ? iterator->key().ToString(true) : "<end>";
+  const std::string observed_seek_value =
+      iterator->Valid() ? iterator->value().ToString() : "<none>";
 
   size_t target_count = 0;
   bool scan_value_ok = true;
@@ -144,7 +148,9 @@ bool ReadOldSst(const std::string& path, const std::string& mode) {
             << (get_ok ? "PASS" : get_status.ToString()) << " multiget="
             << (multiget_ok ? "PASS" : "FAIL") << " seek="
             << (seek_ok && seek_status_ok ? "PASS" : "FAIL") << " scan="
-            << (scan_ok ? "PASS" : "FAIL") << " result="
+            << (scan_ok ? "PASS" : "FAIL") << " seek_key_hex="
+            << observed_seek_key << " seek_value=" << observed_seek_value
+            << " result="
             << (ok ? "PASS" : "FAIL") << '\n';
   return ok;
 }

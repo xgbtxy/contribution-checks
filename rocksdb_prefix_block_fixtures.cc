@@ -66,6 +66,8 @@ int main(int argc, char** argv) {
     const std::string empty_target =
         ROCKSDB_NAMESPACE::MakeInternalKey("", 0,
                                             ROCKSDB_NAMESPACE::kTypeValue);
+    const std::string long_target = ROCKSDB_NAMESPACE::MakeInternalKey(
+        std::string(32, 'p'), 0, ROCKSDB_NAMESPACE::kTypeValue);
     const std::vector<ROCKSDB_NAMESPACE::Fixture> fixtures = {
         {"value_tag_overlap_restart_boundary",
          2,
@@ -97,6 +99,12 @@ int main(int argc, char** argv) {
                                               ROCKSDB_NAMESPACE::kTypeValue),
            "n0"},
           {empty_target, "v0"}}},
+        {"long_user_full_footer_overlap",
+         16,
+         {{ROCKSDB_NAMESPACE::MakeInternalKey(long_target, 1,
+                                            ROCKSDB_NAMESPACE::kTypeValue),
+           "n0"},
+          {long_target, "v0"}}},
     };
     for (const auto& fixture : fixtures) {
       ROCKSDB_NAMESPACE::WriteFixture(directory, fixture);

@@ -41,6 +41,7 @@ constexpr size_t kWarmupIterations = 10000;
 constexpr size_t kDefaultIterations = 200000;
 constexpr size_t kMaxIterations = 1000000;
 constexpr size_t kMeasuredRepeats = 3;
+constexpr size_t kTailMismatchOffsetFromPrefixEnd = 4;
 
 struct Entry {
   std::string user_key;
@@ -70,6 +71,22 @@ std::string MakeInternalKey(const std::string &user_key,
   std::string internal_key = user_key;
   AppendInternalKeyFooter(&internal_key, sequence_number, kTypeValue);
   return internal_key;
+}
+
+std::string CommonUserPrefix(const std::vector<Entry> &entries) {
+  if (entries.empty()) {
+    throw std::runtime_error("cannot build a prefix oracle with no entries");
+  }
+  std::string prefix = entries.front().user_key;
+  for (const Entry &entry : entries) {
+    size_t common = 0;
+    const size_t limit = std::min(prefix.size(), entry.user_key.size());
+    while (common < limit && prefix[common] == entry.user_key[common]) {
+      ++common;
+    }
+    prefix.resize(common);
+  }
+  return prefix;
 }
 
 bool IsHexString(const std::string &value, size_t expected_length) {
@@ -161,9 +178,11 @@ public:
     }
     const size_t first_restart_offset =
         DecodeFixed32(block_bytes_.data() + block_bytes_.size() - footer_size);
-    if ((first_restart_offset != 0) != use_common_prefix_) {
+    const size_t expected_prefix_bytes =
+        use_common_prefix_ ? CommonUserPrefix(entries_).size() : 0;
+    if (first_restart_offset != expected_prefix_bytes) {
       throw std::runtime_error(
-          "common-prefix fixture mode did not match block");
+          "block prefix length did not match user-key oracle");
     }
     common_prefix_bytes_ = first_restart_offset;
   }
@@ -213,18 +232,32 @@ std::vector<Workload> MakeWorkloads(const Comparator *comparator,
                                     const std::vector<Entry> &entries) {
   const InternalKeyComparator internal_comparator(comparator);
   std::vector<Workload> workloads;
-  workloads.reserve(4);
+  workloads.reserve(6);
 
   Workload existing{"matching_existing", {}};
   Workload gaps{"matching_gap", {}};
   Workload before{"mismatch_before_range", {}};
   Workload after{"mismatch_after_range", {}};
+  Workload tail_before{"tail_mismatch_before_range", {}};
+  Workload tail_after{"tail_mismatch_after_range", {}};
+  const std::string logical_common_prefix = CommonUserPrefix(entries);
+  if (logical_common_prefix.size() <= 8) {
+    throw std::runtime_error("fixture prefix is too short for tail mismatches");
+  }
+  const size_t tail_mismatch_position =
+      logical_common_prefix.size() - kTailMismatchOffsetFromPrefixEnd;
+  const char common_byte = logical_common_prefix[tail_mismatch_position];
+  const char lower_byte = static_cast<char>(common_byte - 1);
+  const char upper_byte = static_cast<char>(common_byte + 1);
   existing.queries.reserve(kNumKeys);
   gaps.queries.reserve(kNumKeys);
   before.queries.reserve(kNumKeys);
   after.queries.reserve(kNumKeys);
+  tail_before.queries.reserve(kNumKeys);
+  tail_after.queries.reserve(kNumKeys);
 
   const std::string prefix(kPrefixSize, 'p');
+  const bool reverse = comparator == ReverseBytewiseComparator();
   for (size_t i = 0; i < kNumKeys; ++i) {
     existing.queries.push_back(
         MakeQuery(internal_comparator, entries, prefix + PaddedNumber(i)));
@@ -233,18 +266,32 @@ std::vector<Workload> MakeWorkloads(const Comparator *comparator,
 
     // Bytewise order puts 'a' before and 'z' after the 'p' key range. Reverse
     // bytewise order swaps those positions.
-    const bool reverse = comparator == ReverseBytewiseComparator();
     before.queries.push_back(
         MakeQuery(internal_comparator, entries,
                   std::string(reverse ? "z" : "a") + PaddedNumber(i)));
     after.queries.push_back(
         MakeQuery(internal_comparator, entries,
                   std::string(reverse ? "a" : "z") + PaddedNumber(i)));
+
+    // These targets match the first P-4 bytes of the logical key prefix and
+    // diverge within its last eight bytes, independent of prefix mode.
+    const char before_byte = reverse ? upper_byte : lower_byte;
+    const char after_byte = reverse ? lower_byte : upper_byte;
+    tail_before.queries.push_back(
+        MakeQuery(internal_comparator, entries,
+                  logical_common_prefix.substr(0, tail_mismatch_position) +
+                      before_byte + PaddedNumber(i)));
+    tail_after.queries.push_back(
+        MakeQuery(internal_comparator, entries,
+                  logical_common_prefix.substr(0, tail_mismatch_position) +
+                      after_byte + PaddedNumber(i)));
   }
   workloads.push_back(std::move(existing));
   workloads.push_back(std::move(gaps));
   workloads.push_back(std::move(before));
   workloads.push_back(std::move(after));
+  workloads.push_back(std::move(tail_before));
+  workloads.push_back(std::move(tail_after));
   return workloads;
 }
 
@@ -372,8 +419,17 @@ int main(int argc, char **argv) {
 #if defined(__VERSION__)
     std::cout << "compiler=" << __VERSION__ << '\n';
 #endif
+    const PreparedBlock prefix_probe(BytewiseComparator(),
+                                     true /* use_common_prefix */);
+    const size_t logical_prefix_bytes =
+        CommonUserPrefix(prefix_probe.entries()).size();
     std::cout << "format_version=8\nentries=" << kNumKeys
               << "\nuser_key_prefix_bytes=" << kPrefixSize
+              << "\nlogical_common_user_prefix_bytes=" << logical_prefix_bytes
+              << "\ntail_mismatch_offset_from_prefix_end="
+              << kTailMismatchOffsetFromPrefixEnd
+              << "\ntail_mismatch_shared_prefix_bytes="
+              << logical_prefix_bytes - kTailMismatchOffsetFromPrefixEnd
               << "\nrestart_interval=" << kRestartInterval
               << "\niterations_per_repeat=" << iterations
               << "\nmeasured_repeats=" << kMeasuredRepeats

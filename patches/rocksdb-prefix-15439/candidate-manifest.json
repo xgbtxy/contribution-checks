@@ -1,7 +1,8 @@
 {
-  "captured_utc": "2026-10-30T04:16:30.211911+00:00",
+  "version": 2,
+  "captured_utc": "2026-10-30T06:07:10.300406+00:00",
   "source_base": "87d442749a6a9f0fe5b9f07de7346466f8dd5acf",
-  "status": "staged_uncommitted_not_validated",
+  "status": "staged_uncommitted_native_v2_pending",
   "files": {
     "db/db_basic_test.cc": {
       "git_blob": "b194f94b97e68564d08d580f149c05f12dd37c32",
@@ -9,14 +10,14 @@
       "bytes": 280751
     },
     "table/block_based/block.cc": {
-      "git_blob": "d93657a73e2a8aba2f94be6ed12a5375a4d5dbdd",
-      "sha256_lf": "b6fcae8ba1a287a1c4a822f7cabb10aa6be440b2215f2befacc9b082fe55a782",
-      "bytes": 73018
+      "git_blob": "0ecaa70ae641564ec90a1e9d3289676769d23a35",
+      "sha256_lf": "1a5b071b3037a690f8e54c3a5b2222a20b6998588aae685a83bd67670020964c",
+      "bytes": 72776
     },
     "table/block_based/block.h": {
-      "git_blob": "3ebaea2c4ea699e9b802419485c4582534c56568",
-      "sha256_lf": "2f38f3c0669412ac7cd9f19dc8256d91eb767a7217a4c2a1e09b20d993195e99",
-      "bytes": 46610
+      "git_blob": "bd34a75346dd398fd4dad050999449db084cfc46",
+      "sha256_lf": "99285124c3d3ca3a319d2816551516725cd9a9f9578fc9afaf75e0b2e46a190a",
+      "bytes": 47566
     },
     "table/block_based/block_builder.cc": {
       "git_blob": "7deac799883b526bf6e611ab8c3db247fd707564",
@@ -24,9 +25,9 @@
       "bytes": 24740
     },
     "table/block_based/block_test.cc": {
-      "git_blob": "1eb2893eeff95fcce84959576a289b25e28d27a0",
-      "sha256_lf": "57c24f77a6de4dd99aac56ad327e939a158569d6d88b37fa29c04b5f18d714ee",
-      "bytes": 111619
+      "git_blob": "73739c8e25153cb2e88393518271bf08c0b5512a",
+      "sha256_lf": "a6e5faa8209c0d4ff61bad36102d40aaf8dfcf46333446a8327752173d23c9e7",
+      "bytes": 113395
     },
     "unreleased_history/bug_fixes/reverse_bytewise_common_prefix.md": {
       "git_blob": "60c3e7034e7b2cb476829d87b01518e0ccd04337",
@@ -34,7 +35,8 @@
       "bytes": 216
     }
   },
-  "candidate_patch_sha256": "d07005589ae390d7920e65f2dec308db2323328d67d86fdb21add0765676671d",
-  "tests_only_patch_sha256": "60bc850497623843b42f14f7ecd9d5c3a44876a4c1a19b3277def2a185475b61",
-  "legacy_fixture_validation": "Derived literals; pending byte-for-byte comparison against actual unmodified native writer"
+  "candidate_patch_sha256": "cac9fade4b4bbb5c11fc0884e7febdd512734fe8c0a82d4678ab0a360b07cbd5",
+  "tests_only_patch_sha256": "f2a324e81f5a602b45aecd9ce9df503b7ad5bfebff87749340ccd089bd7faf7b",
+  "previous_candidate_sha256": "d07005589ae390d7920e65f2dec308db2323328d67d86fdb21add0765676671d",
+  "changes_since_v1": "Use guaranteed P-8 prefix for safe boundary shortcuts; add 66-byte long-prefix full-footer legacy fixture and boundary targets. V1 native passes and performance regression remain recorded separately."
 }

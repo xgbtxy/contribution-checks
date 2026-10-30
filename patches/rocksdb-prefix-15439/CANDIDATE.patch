@@ -100,7 +100,7 @@ index 4850876..b194f94 100644
  // Helper that captures per-branch SkippedNoopEdit counts for tests.
  struct RecoveryOptimizationCounters {
 diff --git a/table/block_based/block.cc b/table/block_based/block.cc
-index aae5d9d..d93657a 100644
+index aae5d9d..0ecaa70 100644
 --- a/table/block_based/block.cc
 +++ b/table/block_based/block.cc
 @@ -188,8 +188,9 @@ void DataBlockIter::SeekImpl(const Slice& target) {
@@ -115,32 +115,39 @@ index aae5d9d..d93657a 100644
        Slice target_suffix;
        bool before_all = false;
        if (StripSeekTargetPrefix(target, &target_suffix, &before_all)) {
-@@ -199,23 +200,30 @@ void DataBlockIter::SeekImpl(const Slice& target) {
+@@ -199,23 +200,31 @@ void DataBlockIter::SeekImpl(const Slice& target) {
                                           &skip_linear_scan)) {
            return;
          }
 -        FindKeyAfterBinarySeekSuffix(target_suffix, index, skip_linear_scan);
 -      } else if (before_all) {
+-        // Target sorts before all keys in the block: position at the first key.
+-        SeekToRestartPoint(0);
+-        NextImpl();
+-      } else {
+-        // Target sorts after all keys in the block: no key is >= target.
+-        current_ = GetKeysEndOffset();
+-        restart_index_ = num_restarts_;
 +        FindKeyAfterBinarySeekSuffixImpl<true>(target_suffix, target, index,
 +                                               skip_linear_scan);
 +        return;
-+      }
-+      if (ucmp == BytewiseComparator() && before_all) {
-         // Target sorts before all keys in the block: position at the first key.
-         SeekToRestartPoint(0);
-         NextImpl();
--      } else {
-+        return;
-+      } else if (ucmp == BytewiseComparator()) {
-         // Target sorts after all keys in the block: no key is >= target.
-         current_ = GetKeysEndOffset();
-         restart_index_ = num_restarts_;
-+        return;
        }
 -      return;
-+      // With ReverseBytewiseComparator, a non-matching target cannot be
-+      // classified as before or after every key: a non-restart data key may
-+      // be shorter than the stored prefix. Fall through to full-key search.
++      if (CanClassifyPrefixMismatch(target)) {
++        if (before_all) {
++          // Target sorts before all keys in the block: position at the first
++          // key.
++          SeekToRestartPoint(0);
++          NextImpl();
++        } else {
++          // Target sorts after all keys in the block: no key is >= target.
++          current_ = GetKeysEndOffset();
++          restart_index_ = num_restarts_;
++        }
++        return;
++      }
++      // A reverse-bytewise internal-key target sharing the guaranteed prefix
++      // needs full-key search.
      }
 -    // Non-(reverse-)bytewise comparator (optimize_key_common_prefix=kEnabled):
 -    // the suffix-seek shortcut is not order-preserving, so fall through to the
@@ -155,7 +162,7 @@ index aae5d9d..d93657a 100644
    }
    uint32_t index = 0;
    bool skip_linear_scan = false;
-@@ -408,14 +416,14 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
+@@ -408,14 +417,14 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
    } else if (has_common_prefix() &&
               (icmp_.user_comparator() == BytewiseComparator() ||
                icmp_.user_comparator() == ReverseBytewiseComparator())) {
@@ -178,7 +185,7 @@ index aae5d9d..d93657a 100644
      Slice target_suffix;
      bool before_all = false;
      if (StripSeekTargetPrefix(seek_key, &target_suffix, &before_all)) {
-@@ -427,15 +435,36 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
+@@ -427,15 +436,34 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
        if (!sok) {
          return;
        }
@@ -194,8 +201,7 @@ index aae5d9d..d93657a 100644
 +        FindKeyAfterBinarySeekSuffixImpl<true>(target_suffix, seek_key, index,
 +                                               skip_linear_scan);
 +      }
-+    } else if (icmp_.user_comparator() == BytewiseComparator() ||
-+               raw_key_.IsUserKey()) {
++    } else if (CanClassifyPrefixMismatch(seek_key)) {
 +      if (before_all) {
 +        // Target sorts before all keys: position at the first key.
 +        SeekToRestartPoint(0);
@@ -209,9 +215,8 @@ index aae5d9d..d93657a 100644
 -      // Target sorts after all keys: no key is >= target.
 -      current_ = GetKeysEndOffset();
 -      restart_index_ = num_restarts_;
-+      // Internal-key index entries under ReverseBytewiseComparator can have
-+      // non-restart keys shorter than the stored prefix. Use full-key binary
-+      // search instead of classifying this target against the prefix.
++      // A reverse-bytewise internal-key target sharing the guaranteed prefix
++      // needs full-key binary search instead of classification.
 +      ok = value_delta_encoded_ ? BinarySeekRestartPointIndex<DecodeKeyV4>(
 +                                      seek_key, &index, &skip_linear_scan)
 +                                : BinarySeekRestartPointIndex<DecodeKey>(
@@ -223,7 +228,7 @@ index aae5d9d..d93657a 100644
      }
      return;
    } else {
-@@ -484,29 +513,36 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
+@@ -484,29 +512,37 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
                                           &skip_linear_scan)) {
            return;
          }
@@ -242,22 +247,28 @@ index aae5d9d..d93657a 100644
            }
          }
 -      } else if (before_all) {
-+        return;
-+      }
-+      if (ucmp == BytewiseComparator() && before_all) {
-         // Target sorts before all keys: no key is <= target.
-         current_ = GetKeysEndOffset();
-         restart_index_ = num_restarts_;
+-        // Target sorts before all keys: no key is <= target.
+-        current_ = GetKeysEndOffset();
+-        restart_index_ = num_restarts_;
 -      } else {
-+        return;
-+      } else if (ucmp == BytewiseComparator()) {
-         // Target sorts after all keys: the last key is <= target.
-         SeekToLastImpl();
+-        // Target sorts after all keys: the last key is <= target.
+-        SeekToLastImpl();
 +        return;
        }
 -      return;
-+      // A mismatched target in a reverse-bytewise data block needs the
-+      // comparator-aware full-key search below.
++      if (CanClassifyPrefixMismatch(target)) {
++        if (before_all) {
++          // Target sorts before all keys: no key is <= target.
++          current_ = GetKeysEndOffset();
++          restart_index_ = num_restarts_;
++        } else {
++          // Target sorts after all keys: the last key is <= target.
++          SeekToLastImpl();
++        }
++        return;
++      }
++      // A reverse-bytewise internal-key target sharing the guaranteed prefix
++      // needs the comparator-aware full-key search below.
      }
 -    // Non-(reverse-)bytewise comparator (optimize_key_common_prefix=kEnabled):
 -    // fall through to the standard binary search below, which reconstructs each
@@ -306,10 +317,35 @@ index aae5d9d..d93657a 100644
        }
      }
 diff --git a/table/block_based/block.h b/table/block_based/block.h
-index b484ea4..3ebaea2 100644
+index b484ea4..bd34a75 100644
 --- a/table/block_based/block.h
 +++ b/table/block_based/block.h
-@@ -817,8 +817,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
+@@ -814,11 +814,35 @@ class BlockIter : public InternalIteratorBase<TValue> {
+   // all keys in the block (per the user comparator).
+   bool StripSeekTargetPrefix(const Slice& target, Slice* target_suffix,
+                              bool* before_all) const;
++  // Whether StripSeekTargetPrefix()'s before/after result remains conclusive.
++  // A legacy reverse-bytewise prefix can extend into a non-restart key's
++  // footer by at most kNumInternalBytes. A target that differs before those
++  // bytes still compares to every key with the same sign as to the full prefix.
++  bool CanClassifyPrefixMismatch(const Slice& target) const {
++    assert(has_common_prefix());
++    const Comparator* ucmp = icmp_.user_comparator();
++    assert(ucmp == BytewiseComparator() || ucmp == ReverseBytewiseComparator());
++    if (ucmp == BytewiseComparator() || raw_key_.IsUserKey()) {
++      return true;
++    }
++
++    const size_t guaranteed_prefix_size =
++        common_prefix_size_ > kNumInternalBytes
++            ? common_prefix_size_ - kNumInternalBytes
++            : 0;
++    if (guaranteed_prefix_size == 0) {
++      return false;
++    }
++    return !ExtractUserKey(target).starts_with(
++        Slice(data_, guaranteed_prefix_size));
++  }
    template <typename DecodeKeyFunc>
    bool BinarySeekSuffix(const Slice& target_suffix, uint32_t* index,
                          bool* skip_linear_scan);
@@ -322,7 +358,7 @@ index b484ea4..3ebaea2 100644
    // Compares the current (full) key against `target_suffix`, skipping the
    // common prefix bytes on the current key. REQUIRES: has_common_prefix().
    int CompareCurrentKeySuffix(const Slice& target_suffix) const {
-@@ -828,6 +830,17 @@ class BlockIter : public InternalIteratorBase<TValue> {
+@@ -828,6 +852,17 @@ class BlockIter : public InternalIteratorBase<TValue> {
                   full.size() - common_prefix_size_);
      return CompareKey(suffix, target_suffix);
    }
@@ -377,10 +413,10 @@ index a9df804..7deac79 100644
    }
  
 diff --git a/table/block_based/block_test.cc b/table/block_based/block_test.cc
-index 98fd260..1eb2893 100644
+index 98fd260..73739c8 100644
 --- a/table/block_based/block_test.cc
 +++ b/table/block_based/block_test.cc
-@@ -182,6 +182,304 @@ TEST_P(BlockTest, SimpleTest) {
+@@ -182,6 +182,339 @@ TEST_P(BlockTest, SimpleTest) {
    delete iter;
  }
  
@@ -453,6 +489,17 @@ index 98fd260..1eb2893 100644
 +    "\x08\x00\x00\x00\x01\x00\x00\x00";
 +static_assert(sizeof(kLegacyEmptyUserFullFooterOverlap) - 1 == 34);
 +
++// The 40-byte stored prefix contains a 32-byte user key and its whole footer.
++// This makes the guaranteed user-key prefix exactly 32 bytes, not 33.
++const char kLegacyLongUserFullFooterOverlap[] =
++    "\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70"
++    "\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70"
++    "\x01\x00\x00\x00\x00\x00\x00\x00"
++    "\x00\x08\x02\x01\x01\x00\x00\x00\x00\x00\x00\x6e\x30"
++    "\x28\x00\x02\x76\x30"
++    "\x28\x00\x00\x00\x01\x00\x00\x00";
++static_assert(sizeof(kLegacyLongUserFullFooterOverlap) - 1 == 66);
++
 +struct LegacyCommonPrefixBlock {
 +  const char* name;
 +  const char* bytes;
@@ -464,6 +511,8 @@ index 98fd260..1eb2893 100644
 +
 +std::vector<LegacyCommonPrefixBlock> GetLegacyCommonPrefixBlocks() {
 +  const std::string empty_footer_user("\x01\x00\x00\x00\x00\x00\x00\x00", 8);
++  const std::string long_user(32, 'p');
++  const std::string long_footer_user = long_user + empty_footer_user;
 +  return {
 +      {"value_tag_overlap_restart_boundary",
 +       kLegacyValueTagOverlapRestartBoundary,
@@ -518,6 +567,28 @@ index 98fd260..1eb2893 100644
 +        {InternalKey("", 0, kTypeValue).Encode().ToString(), "v0"}},
 +       {InternalKey(empty_footer_user, 0, kTypeValue).Encode().ToString(),
 +        InternalKey("", 0, kTypeValue).Encode().ToString()}},
++      {"long_user_full_footer_overlap",
++       kLegacyLongUserFullFooterOverlap,
++       sizeof(kLegacyLongUserFullFooterOverlap) - 1,
++       16,
++       {{InternalKey(long_footer_user, 1, kTypeValue).Encode().ToString(),
++         "n0"},
++        {InternalKey(long_user, 0, kTypeValue).Encode().ToString(), "v0"}},
++       {InternalKey(long_user, kMaxSequenceNumber, kValueTypeForSeek)
++            .Encode()
++            .ToString(),
++        InternalKey(long_user, 0, kTypeValue).Encode().ToString(),
++        InternalKey(long_footer_user, 0, kTypeValue).Encode().ToString(),
++        // Mismatches before the guaranteed boundary can use the shortcut.
++        InternalKey(std::string(31, 'p') + 'q', 0, kTypeValue)
++            .Encode()
++            .ToString(),
++        InternalKey(std::string(31, 'p') + 'o', 0, kTypeValue)
++            .Encode()
++            .ToString(),
++        // A mismatch at that boundary can still precede the shorter key.
++        InternalKey(long_user + '\x00', 0, kTypeValue).Encode().ToString(),
++        InternalKey(long_user + '\x02', 0, kTypeValue).Encode().ToString()}},
 +  };
 +}
 +

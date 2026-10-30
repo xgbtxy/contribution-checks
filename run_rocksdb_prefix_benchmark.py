@@ -27,6 +27,8 @@ EXPECTED = {
         "matching_gap",
         "mismatch_before_range",
         "mismatch_after_range",
+        "tail_mismatch_before_range",
+        "tail_mismatch_after_range",
     )
 }
 
@@ -69,7 +71,20 @@ def parse_output(text: str, diff_sha: str, library_sha: str) -> tuple[dict, dict
             raise RuntimeError(f"invalid block size or timing: {key}")
         rows[key] = parsed
     if set(rows) != EXPECTED:
-        raise RuntimeError(f"expected 16 rows, received {len(rows)}")
+        raise RuntimeError(f"expected 24 rows, received {len(rows)}")
+    logical_prefix = int(meta.get("logical_common_user_prefix_bytes", "0"))
+    tail_shared = int(meta.get("tail_mismatch_shared_prefix_bytes", "-1"))
+    mismatch_offset = int(meta.get("tail_mismatch_offset_from_prefix_end", "-1"))
+    if (meta.get("format_version") != "8" or meta.get("entries") != "128"
+            or meta.get("user_key_prefix_bytes") != "64"
+            or mismatch_offset != 4
+            or tail_shared != logical_prefix - mismatch_offset
+            or not logical_prefix - 8 <= tail_shared < logical_prefix):
+        raise RuntimeError("benchmark fixture/workload metadata differs from plan")
+    for comparator, mode, workload in EXPECTED:
+        expected_prefix = logical_prefix if mode == "on" else 0
+        if rows[(comparator, mode, workload)]["prefix_bytes"] != expected_prefix:
+            raise RuntimeError(f"block prefix length differs from key oracle: {comparator}/{mode}")
     return meta, rows
 
 
@@ -80,12 +95,36 @@ def serializable_rows(rows: dict) -> list[dict]:
     ]
 
 
-def run_benchmark(receipt: dict, source: Path, bins: Path, logs: Path,
-                  env: dict[str, str], stage: str, library_sha: str,
-                  diff_sha: str, iterations: int, artifacts: Path) -> tuple[dict, dict]:
-    binary = shared.compile_program(
-        receipt, source, bins, logs, env, f"prefix-{stage}-seek-bench", BENCH
-    )
+def pair_rows(before_rows: dict, candidate_rows: dict, after_rows: dict) -> list[dict]:
+    pairs = []
+    for key in sorted(EXPECTED):
+        before, candidate, after = (
+            before_rows[key], candidate_rows[key], after_rows[key]
+        )
+        for field in ("checksum", "prefix_bytes", "block_bytes", "iterations", "repeats"):
+            if before[field] != candidate[field] or before[field] != after[field]:
+                raise RuntimeError(f"A/B/A metadata or checksum mismatch: {key}/{field}")
+        pairs.append({
+            "comparator": key[0], "prefix_mode": key[1], "workload": key[2],
+            "checksum": before["checksum"], "prefix_bytes": before["prefix_bytes"],
+            "block_bytes": before["block_bytes"], "iterations": before["iterations"],
+            "repeats": before["repeats"],
+            "baseline_before_ns_per_seek_median": before["median"],
+            "candidate_ns_per_seek_median": candidate["median"],
+            "baseline_after_ns_per_seek_median": after["median"],
+            "candidate_over_baseline_before_median_ratio": candidate["median"] / before["median"],
+            "candidate_over_baseline_after_median_ratio": candidate["median"] / after["median"],
+            "baseline_after_over_before_median_ratio": after["median"] / before["median"],
+            "baseline_range_ns": [before["min"], before["max"]],
+            "candidate_range_ns": [candidate["min"], candidate["max"]],
+            "baseline_after_range_ns": [after["min"], after["max"]],
+        })
+    return pairs
+
+
+def run_binary(receipt: dict, source: Path, logs: Path, env: dict[str, str],
+               stage: str, binary: Path, library_sha: str, diff_sha: str,
+               iterations: int, artifacts: Path, binary_origin: str) -> tuple[dict, dict]:
     result = shared.run_command(
         receipt, f"{stage}-seek-benchmark",
         [str(binary), shared.SOURCE_PIN, diff_sha, library_sha, str(iterations)],
@@ -99,6 +138,7 @@ def run_benchmark(receipt: dict, source: Path, bins: Path, logs: Path,
     meta, rows = parse_output(text, diff_sha, library_sha)
     receipt.setdefault("benchmarks", {})[stage] = {
         "binary_sha256": shared.sha256_file(binary),
+        "binary_origin": binary_origin,
         "library_sha256": library_sha,
         "source_diff_sha256": diff_sha,
         "metadata": meta,
@@ -107,6 +147,19 @@ def run_benchmark(receipt: dict, source: Path, bins: Path, logs: Path,
     }
     shared.write_json(artifacts / "benchmark-comparison.json", receipt)
     return meta, rows
+
+
+def compile_and_run(receipt: dict, source: Path, bins: Path, logs: Path,
+                    env: dict[str, str], stage: str, library_sha: str,
+                    diff_sha: str, iterations: int, artifacts: Path) -> tuple[Path, dict, dict]:
+    binary = shared.compile_program(
+        receipt, source, bins, logs, env, f"prefix-{stage}-seek-bench", BENCH
+    )
+    meta, rows = run_binary(
+        receipt, source, logs, env, stage, binary, library_sha, diff_sha,
+        iterations, artifacts, "compiled and linked at this stage",
+    )
+    return binary, meta, rows
 
 
 def main() -> int:
@@ -146,7 +199,7 @@ def main() -> int:
             "library_sha256": base_lib, "make_config": base_config,
             "debug_level": 0, "make_jobs": 2,
         }
-        base_meta, base_rows = run_benchmark(
+        baseline_binary, base_meta, base_rows = compile_and_run(
             receipt, source, bins, logs, env, "baseline", base_lib,
             "none", args.iterations, artifacts,
         )
@@ -179,42 +232,49 @@ def main() -> int:
             "library_sha256": candidate_lib, "make_config": candidate_config,
             "debug_level": 0, "make_jobs": 2,
         }
-        candidate_meta, candidate_rows = run_benchmark(
+        candidate_meta, candidate_rows = compile_and_run(
             receipt, source, bins, logs, env, "candidate", candidate_lib,
             manifest["candidate_patch_sha256"], args.iterations, artifacts,
         )
 
-        if base_meta.get("compiler") != candidate_meta.get("compiler") or base_meta.get(
-            "target_platform"
-        ) != candidate_meta.get("target_platform"):
-            raise RuntimeError("baseline/candidate compiler or target metadata differ")
-        pairs = []
-        for key in sorted(EXPECTED):
-            before, after = base_rows[key], candidate_rows[key]
-            for field in ("checksum", "prefix_bytes", "block_bytes", "iterations", "repeats"):
-                if before[field] != after[field]:
-                    raise RuntimeError(f"baseline/candidate mismatch: {key}/{field}")
-            pairs.append({
-                "comparator": key[0], "prefix_mode": key[1], "workload": key[2],
-                "checksum": before["checksum"], "prefix_bytes": before["prefix_bytes"],
-                "block_bytes": before["block_bytes"], "iterations": before["iterations"],
-                "repeats": before["repeats"],
-                "baseline_ns_per_seek_median": before["median"],
-                "candidate_ns_per_seek_median": after["median"],
-                "candidate_over_baseline_median_ratio": after["median"] / before["median"],
-                "baseline_range_ns": [before["min"], before["max"]],
-                "candidate_range_ns": [after["min"], after["max"]],
-            })
+        # Reuse the already-linked baseline executable after the candidate run.
+        # The checkout now contains the candidate patch, but this A2 binary and
+        # the retained executable still contains the original baseline code.
+        base_again_meta, base_again_rows = run_binary(
+            receipt, source, logs, env, "baseline_repeat", baseline_binary,
+            base_lib, "none", args.iterations, artifacts,
+            "retained baseline-linked executable; candidate patch is in checkout",
+        )
+        if (receipt["benchmarks"]["baseline_repeat"]["binary_sha256"]
+                != receipt["benchmarks"]["baseline"]["binary_sha256"]):
+            raise RuntimeError("A2 did not reuse the retained baseline executable")
+
+        for meta in (candidate_meta, base_again_meta):
+            if (base_meta.get("compiler") != meta.get("compiler")
+                    or base_meta.get("target_platform") != meta.get("target_platform")):
+                raise RuntimeError("baseline/candidate compiler or target metadata differ")
+            for field in (
+                "format_version", "entries", "user_key_prefix_bytes",
+                "logical_common_user_prefix_bytes",
+                "tail_mismatch_offset_from_prefix_end",
+                "tail_mismatch_shared_prefix_bytes", "restart_interval",
+                "iterations_per_repeat", "measured_repeats",
+            ):
+                if base_meta.get(field) != meta.get(field):
+                    raise RuntimeError(f"A/B/A benchmark metadata differs: {field}")
+        pairs = pair_rows(base_rows, candidate_rows, base_again_rows)
         receipt["comparison"] = {
-            "rows": len(pairs), "checksums_match": True,
-            "baseline_metadata": base_meta, "candidate_metadata": candidate_meta,
+            "rows": len(pairs), "checksums_match_across_aba": True,
+            "baseline_before_metadata": base_meta,
+            "candidate_metadata": candidate_meta,
+            "baseline_after_metadata": base_again_meta,
             "pairs": pairs,
         }
         receipt["status"] = "benchmark_complete"
         receipt["finished_utc"] = shared.utc()
         shared.write_json(artifacts / "benchmark-comparison.json", receipt)
         print(json.dumps({"status": receipt["status"], "rows": len(pairs),
-                          "checksums_match": True}, sort_keys=True), flush=True)
+                          "checksums_match_across_aba": True}, sort_keys=True), flush=True)
         return 0
     except Exception as error:
         receipt["status"], receipt["error"] = "failed", repr(error)

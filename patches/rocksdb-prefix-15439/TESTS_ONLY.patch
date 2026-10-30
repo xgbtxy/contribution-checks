@@ -100,10 +100,10 @@ index 4850876..b194f94 100644
  // Helper that captures per-branch SkippedNoopEdit counts for tests.
  struct RecoveryOptimizationCounters {
 diff --git a/table/block_based/block_test.cc b/table/block_based/block_test.cc
-index 98fd260..1eb2893 100644
+index 98fd260..73739c8 100644
 --- a/table/block_based/block_test.cc
 +++ b/table/block_based/block_test.cc
-@@ -182,6 +182,304 @@ TEST_P(BlockTest, SimpleTest) {
+@@ -182,6 +182,339 @@ TEST_P(BlockTest, SimpleTest) {
    delete iter;
  }
  
@@ -176,6 +176,17 @@ index 98fd260..1eb2893 100644
 +    "\x08\x00\x00\x00\x01\x00\x00\x00";
 +static_assert(sizeof(kLegacyEmptyUserFullFooterOverlap) - 1 == 34);
 +
++// The 40-byte stored prefix contains a 32-byte user key and its whole footer.
++// This makes the guaranteed user-key prefix exactly 32 bytes, not 33.
++const char kLegacyLongUserFullFooterOverlap[] =
++    "\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70"
++    "\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70\x70"
++    "\x01\x00\x00\x00\x00\x00\x00\x00"
++    "\x00\x08\x02\x01\x01\x00\x00\x00\x00\x00\x00\x6e\x30"
++    "\x28\x00\x02\x76\x30"
++    "\x28\x00\x00\x00\x01\x00\x00\x00";
++static_assert(sizeof(kLegacyLongUserFullFooterOverlap) - 1 == 66);
++
 +struct LegacyCommonPrefixBlock {
 +  const char* name;
 +  const char* bytes;
@@ -187,6 +198,8 @@ index 98fd260..1eb2893 100644
 +
 +std::vector<LegacyCommonPrefixBlock> GetLegacyCommonPrefixBlocks() {
 +  const std::string empty_footer_user("\x01\x00\x00\x00\x00\x00\x00\x00", 8);
++  const std::string long_user(32, 'p');
++  const std::string long_footer_user = long_user + empty_footer_user;
 +  return {
 +      {"value_tag_overlap_restart_boundary",
 +       kLegacyValueTagOverlapRestartBoundary,
@@ -241,6 +254,28 @@ index 98fd260..1eb2893 100644
 +        {InternalKey("", 0, kTypeValue).Encode().ToString(), "v0"}},
 +       {InternalKey(empty_footer_user, 0, kTypeValue).Encode().ToString(),
 +        InternalKey("", 0, kTypeValue).Encode().ToString()}},
++      {"long_user_full_footer_overlap",
++       kLegacyLongUserFullFooterOverlap,
++       sizeof(kLegacyLongUserFullFooterOverlap) - 1,
++       16,
++       {{InternalKey(long_footer_user, 1, kTypeValue).Encode().ToString(),
++         "n0"},
++        {InternalKey(long_user, 0, kTypeValue).Encode().ToString(), "v0"}},
++       {InternalKey(long_user, kMaxSequenceNumber, kValueTypeForSeek)
++            .Encode()
++            .ToString(),
++        InternalKey(long_user, 0, kTypeValue).Encode().ToString(),
++        InternalKey(long_footer_user, 0, kTypeValue).Encode().ToString(),
++        // Mismatches before the guaranteed boundary can use the shortcut.
++        InternalKey(std::string(31, 'p') + 'q', 0, kTypeValue)
++            .Encode()
++            .ToString(),
++        InternalKey(std::string(31, 'p') + 'o', 0, kTypeValue)
++            .Encode()
++            .ToString(),
++        // A mismatch at that boundary can still precede the shorter key.
++        InternalKey(long_user + '\x00', 0, kTypeValue).Encode().ToString(),
++        InternalKey(long_user + '\x02', 0, kTypeValue).Encode().ToString()}},
 +  };
 +}
 +

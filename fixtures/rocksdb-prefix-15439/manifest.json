@@ -1,0 +1,120 @@
+{
+  "source_commit": "87d442749a6a9f0fe5b9f07de7346466f8dd5acf",
+  "source_run": "https://github.com/xgbtxy/contribution-checks/actions/runs/41003363684",
+  "source_artifact_id": 12955321158,
+  "source_receipt_sha256": "0ea532b35df50ee8ee28a40c63aef26433c9a0d1807bb7325d8b1d98f109ce02",
+  "scenarios": {
+    "delete": {
+      "files": [
+        {
+          "bytes": 1372,
+          "path": "000009.sst",
+          "sha256": "4fa47f8823d4a75fa112e53fa3909067490ec1925d17f9dac8a0ffd3a50a2c53"
+        },
+        {
+          "bytes": 0,
+          "path": "000010.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 1383,
+          "path": "000011.sst",
+          "sha256": "3ecc3130f5f75a506dd1fcf97d9c74bdd065376cb525f5b8988d17b11f96cc9b"
+        },
+        {
+          "bytes": 16,
+          "path": "CURRENT",
+          "sha256": "9c283f6e81028b9eb0760d918ee4bc0aa256ed3b926393c1734c760c4bd724fd"
+        },
+        {
+          "bytes": 36,
+          "path": "IDENTITY",
+          "sha256": "30676cb59418c87bf8b0137427e9ec34950b6ae9c13945dfcf9537e5ae4a3ed9"
+        },
+        {
+          "bytes": 345,
+          "path": "MANIFEST-000005",
+          "sha256": "31e164d185d5cd8587c64f597a0667af4dfdef1c3b343613465bd450610c4b00"
+        },
+        {
+          "bytes": 9490,
+          "path": "OPTIONS-000007",
+          "sha256": "fcb8e85d3569f1009febc13f2f91ee7207f562764599e073bc0a9ed0659f677f"
+        }
+      ]
+    },
+    "new": {
+      "files": [
+        {
+          "bytes": 0,
+          "path": "000008.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 1393,
+          "path": "000009.sst",
+          "sha256": "c6a90d034bbad7c1e10236ff78a5452cb01beaf2c46bfe7b92ca3036ce915a18"
+        },
+        {
+          "bytes": 16,
+          "path": "CURRENT",
+          "sha256": "9c283f6e81028b9eb0760d918ee4bc0aa256ed3b926393c1734c760c4bd724fd"
+        },
+        {
+          "bytes": 36,
+          "path": "IDENTITY",
+          "sha256": "fc3d9245981dd5aa9f15a60341354dd79d14f5c60c86117e87d2c29b83cd8f9d"
+        },
+        {
+          "bytes": 240,
+          "path": "MANIFEST-000005",
+          "sha256": "a0db4248df9790e9543776bdc9ae18bdedd1fb09120a663d5ceb9fdb793bacf1"
+        },
+        {
+          "bytes": 9490,
+          "path": "OPTIONS-000007",
+          "sha256": "fcb8e85d3569f1009febc13f2f91ee7207f562764599e073bc0a9ed0659f677f"
+        }
+      ]
+    },
+    "update": {
+      "files": [
+        {
+          "bytes": 1372,
+          "path": "000009.sst",
+          "sha256": "a11b82c4fb84af6d4981d9a74cdb7d67f1e3db3ca662689944e37dfd1d44aa2b"
+        },
+        {
+          "bytes": 0,
+          "path": "000010.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 1394,
+          "path": "000011.sst",
+          "sha256": "c005c2fed18cf9cd329f405c4a2b1167ce979b465a16740fd77a24d7b00788b8"
+        },
+        {
+          "bytes": 16,
+          "path": "CURRENT",
+          "sha256": "9c283f6e81028b9eb0760d918ee4bc0aa256ed3b926393c1734c760c4bd724fd"
+        },
+        {
+          "bytes": 36,
+          "path": "IDENTITY",
+          "sha256": "a6d86465f43ed46c012d24a61ca00360b516e682a208d1e800d9287fa257b301"
+        },
+        {
+          "bytes": 345,
+          "path": "MANIFEST-000005",
+          "sha256": "a97fa4298b1acaa4da833d83f1c6287c03a78a705c4527809ce53b590ab0b296"
+        },
+        {
+          "bytes": 9490,
+          "path": "OPTIONS-000007",
+          "sha256": "fcb8e85d3569f1009febc13f2f91ee7207f562764599e073bc0a9ed0659f677f"
+        }
+      ]
+    }
+  }
+}

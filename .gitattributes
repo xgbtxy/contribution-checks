@@ -1,2 +1,4 @@
 # Unified patches contain meaningful space-prefixed blank context lines.
 patches/*.patch text eol=lf -whitespace
+# Preserve exact bytes of native database fixtures, including OPTIONS spacing.
+fixtures/rocksdb-prefix-15439/*/* -text -diff -whitespace

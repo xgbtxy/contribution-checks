@@ -1129,6 +1129,7 @@ def verify_legacy_fixture_literals(
         "kLegacyValueTagOverlapRestartBoundary": "value_tag_overlap_restart_boundary",
         "kLegacyDeleteTagOverlap": "delete_tag_overlap",
         "kLegacyEmptyUserFullFooterOverlap": "empty_user_full_footer_overlap",
+        "kLegacyLongUserFullFooterOverlap": "long_user_full_footer_overlap",
     }
     by_name = {fixture["name"]: fixture for fixture in fixtures}
     test_source = source / "table/block_based/block_test.cc"
@@ -1564,6 +1565,7 @@ def main() -> int:
                 "value_tag_overlap_restart_boundary": 2,
                 "delete_tag_overlap": 2,
                 "empty_user_full_footer_overlap": 16,
+                "long_user_full_footer_overlap": 16,
             },
             "use_common_prefix": True,
             "use_delta_encoding": True,
@@ -1587,6 +1589,10 @@ def main() -> int:
                 "empty_user_full_footer_overlap": [
                     {"user_key_hex": "0100000000000000", "sequence": 1, "type": "value", "value": "n0"},
                     {"user_key_hex": "", "sequence": 0, "type": "value", "value": "v0"},
+                ],
+                "long_user_full_footer_overlap": [
+                    {"user_key_hex": "70" * 32 + "0100000000000000", "sequence": 1, "type": "value", "value": "n0"},
+                    {"user_key_hex": "70" * 32, "sequence": 0, "type": "value", "value": "v0"},
                 ],
             },
         },

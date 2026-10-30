@@ -12,6 +12,9 @@ on:
           - release-baseline
           - focused
           - benchmark
+          - full-normal
+          - full-status-checked
+          - coerce
 
 permissions:
   contents: read
@@ -19,13 +22,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: ${{ startsWith(inputs.phase, 'full-') && 360 || 90 }}
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache-rocksdb
       CCACHE_BASEDIR: ${{ github.workspace }}/rocksdb
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 2G
       PORTABLE: "1"
+      API_COMPAT_REF: 87d442749a6a9f0fe5b9f07de7346466f8dd5acf
     steps:
       - name: Checkout validation helper
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -47,14 +51,31 @@ jobs:
       - name: Install Snappy and the compiler cache
         run: |
           set -euo pipefail
+          packages=(libsnappy-dev ccache)
+          if [[ "${{ inputs.phase }}" == full-* ]]; then
+            packages+=(libgflags-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev ruby)
+          fi
           sudo apt-get update -qq > artifacts/logs/dependency-install.log 2>&1
-          sudo apt-get install -y --no-install-recommends libsnappy-dev ccache >> artifacts/logs/dependency-install.log 2>&1
+          sudo apt-get install -y --no-install-recommends "${packages[@]}" >> artifacts/logs/dependency-install.log 2>&1
           echo /usr/lib/ccache >> "$GITHUB_PATH"
           if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists snappy; then
             pkg-config --modversion snappy > artifacts/logs/snappy-version.log
           else
             dpkg-query -W -f='${Package} ${Version}\n' libsnappy-dev > artifacts/logs/snappy-version.log
           fi
+
+      - name: Install the upstream CI formatter for full checks
+        if: startsWith(inputs.phase, 'full-')
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/rocksdb-format"
+          "$RUNNER_TEMP/rocksdb-format/bin/python" -m pip install https://files.pythonhosted.org/packages/fb/ac/3c04772acc0257f5730e83adb542b2603c1a62d1315010ab593a980af404/clang_format-21.1.2-py2.py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl > artifacts/logs/formatter-install.log 2>&1
+          curl --fail --silent --show-error --location --retry 3 https://github.com/meta/rocksdb/releases/download/third-party-deps/clang-format-diff.py -o "$RUNNER_TEMP/rocksdb-format/clang-format-diff.py"
+          sha256sum "$RUNNER_TEMP/rocksdb-format/clang-format-diff.py" > artifacts/logs/formatter-script.sha256
+          "$RUNNER_TEMP/rocksdb-format/bin/clang-format" --version > artifacts/logs/formatter-version.txt
+          echo "$RUNNER_TEMP/rocksdb-format/bin" >> "$GITHUB_PATH"
+          echo "CLANG_FORMAT_DIFF=python3 $RUNNER_TEMP/rocksdb-format/clang-format-diff.py" >> "$GITHUB_ENV"
+          echo "CLANG_FORMAT_BINARY=clang-format" >> "$GITHUB_ENV"
 
       - name: Restore compiler cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -72,6 +93,14 @@ jobs:
           phase="${RUN_PHASE:-release-baseline}"
           if [[ "$phase" == "benchmark" ]]; then
             python3 run_rocksdb_prefix_benchmark.py --source rocksdb --artifacts artifacts
+            exit 0
+          fi
+          if [[ "$phase" == full-* ]]; then
+            python3 run_rocksdb_prefix_full_check.py --source rocksdb --artifacts artifacts --mode "${phase#full-}" --candidate-patch patches/rocksdb-prefix-15439/CANDIDATE.patch --candidate-manifest patches/rocksdb-prefix-15439/candidate-manifest.json
+            exit 0
+          fi
+          if [[ "$phase" == "coerce" ]]; then
+            python3 run_rocksdb_prefix_coerce.py --source rocksdb --artifacts artifacts --candidate-patch patches/rocksdb-prefix-15439/CANDIDATE.patch --candidate-manifest patches/rocksdb-prefix-15439/candidate-manifest.json
             exit 0
           fi
           args=(--phase "$phase")
@@ -103,6 +132,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: rocksdb-prefix-15439-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/
+          path: |
+            artifacts/
+            !artifacts/bin/**
+            !artifacts/bin-temp/**
           if-no-files-found: error
           retention-days: 7
